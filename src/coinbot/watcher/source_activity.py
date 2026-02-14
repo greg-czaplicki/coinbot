@@ -61,9 +61,10 @@ class SourceWalletActivityPoller:
                     inserted = self._dedupe.mark_seen(
                         EventKey(
                             event_id=event.event_id,
-                            tx_hash=raw.get("transactionHash", ""),
                             market_id=event.market_id,
                             seen_at_unix=int(time.time()),
+                            tx_hash=str(raw.get("transactionHash", "")),
+                            sequence=str(raw.get("sequence", "")),
                         )
                     )
                     if not inserted:

@@ -8,8 +8,10 @@ from typing import Final
 
 SCHEMA: Final[str] = """
 CREATE TABLE IF NOT EXISTS processed_events (
-  event_id TEXT PRIMARY KEY,
-  tx_hash TEXT NOT NULL,
+  dedupe_key TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL,
+  tx_hash TEXT,
+  sequence TEXT,
   market_id TEXT NOT NULL,
   seen_at_unix INTEGER NOT NULL
 );
@@ -22,9 +24,10 @@ ON processed_events (tx_hash);
 @dataclass
 class EventKey:
     event_id: str
-    tx_hash: str
     market_id: str
     seen_at_unix: int
+    tx_hash: str = ""
+    sequence: str = ""
 
 
 class SqliteDedupeStore:
@@ -35,23 +38,31 @@ class SqliteDedupeStore:
             conn.executescript(SCHEMA)
             conn.commit()
 
-    def already_seen(self, event_id: str) -> bool:
+    def already_seen(self, dedupe_key: str) -> bool:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT 1 FROM processed_events WHERE event_id = ? LIMIT 1",
-                (event_id,),
+                "SELECT 1 FROM processed_events WHERE dedupe_key = ? LIMIT 1",
+                (dedupe_key,),
             ).fetchone()
         return row is not None
 
     def mark_seen(self, key: EventKey) -> bool:
+        dedupe_key = build_dedupe_key(key)
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO processed_events (
-                  event_id, tx_hash, market_id, seen_at_unix
-                ) VALUES (?, ?, ?, ?)
+                  dedupe_key, event_id, tx_hash, sequence, market_id, seen_at_unix
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (key.event_id, key.tx_hash, key.market_id, key.seen_at_unix),
+                (
+                    dedupe_key,
+                    key.event_id,
+                    key.tx_hash,
+                    key.sequence,
+                    key.market_id,
+                    key.seen_at_unix,
+                ),
             )
             conn.commit()
         return cursor.rowcount == 1
@@ -60,3 +71,13 @@ class SqliteDedupeStore:
         conn = sqlite3.connect(self._db_path)
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn
+
+
+def build_dedupe_key(key: EventKey) -> str:
+    if key.event_id:
+        return f"id:{key.event_id}"
+    if key.tx_hash and key.sequence:
+        return f"txseq:{key.tx_hash}:{key.sequence}"
+    if key.tx_hash:
+        return f"tx:{key.tx_hash}:{key.market_id}"
+    return f"fallback:{key.market_id}:{key.seen_at_unix}"

@@ -28,7 +28,7 @@ Exit criteria:
 - [ ] Implement websocket subscription(s) for source wallet activity.
 - [x] Normalize incoming events into internal `TradeEvent` schema.
 - [x] Include market window metadata in normalized events (asset, start/end, outcome side).
-- [ ] Add deduplication by event ID + tx hash + sequence rules.
+- [x] Add deduplication by event ID + tx hash + sequence rules.
 - [x] Persist last processed offsets/checkpoints.
 - [x] Implement reconnect logic with exponential backoff and replay safety.
 
