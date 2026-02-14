@@ -117,6 +117,13 @@ def _extract_outcome_prices(item: dict[str, Any]) -> dict[str, Decimal]:
     prices: dict[str, Decimal] = {}
     raw_outcomes = item.get("outcomes", []) or []
     labels: list[str] = []
+    if isinstance(raw_outcomes, str):
+        try:
+            parsed_outcomes = json.loads(raw_outcomes)
+            if isinstance(parsed_outcomes, list):
+                raw_outcomes = parsed_outcomes
+        except json.JSONDecodeError:
+            raw_outcomes = []
     if isinstance(raw_outcomes, list):
         for raw in raw_outcomes:
             if isinstance(raw, dict):
