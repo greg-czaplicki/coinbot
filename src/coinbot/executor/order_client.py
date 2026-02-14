@@ -157,9 +157,7 @@ class ClobOrderClient:
                 size=float(size),
                 side=intent.side.value.upper(),
             )
-            signed = client.create_order(order_args)
-            order_type = getattr(OrderType, "GTC", None) or getattr(OrderType, "FOK")
-            response = client.post_order(signed, order_type)
+            response = self._post_with_refresh(client, order_args, OrderType)
             return OrderSubmission(
                 client_order_id=client_order_id,
                 endpoint=endpoint,
@@ -170,7 +168,14 @@ class ClobOrderClient:
             )
         except Exception as exc:
             self._log.warning("py_clob_submit_error client_order_id=%s error=%s", client_order_id, exc)
-            return None
+            return OrderSubmission(
+                client_order_id=client_order_id,
+                endpoint=endpoint,
+                payload=payload,
+                accepted=False,
+                status="rejected",
+                error=str(exc),
+            )
 
     def _resolve_token_id(self, *, intent: ExecutionIntent, market_slug: str | None) -> str | None:
         if self._market_cache is None:
@@ -224,6 +229,20 @@ class ClobOrderClient:
             client.set_api_creds(client.create_or_derive_api_creds())
         self._clob_client = client
         return client
+
+    def _post_with_refresh(self, client: object, order_args: object, OrderType: object):
+        order_type = getattr(OrderType, "GTC", None) or getattr(OrderType, "FOK")
+        signed = client.create_order(order_args)
+        try:
+            return client.post_order(signed, order_type)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "invalid api key" not in msg and "unauthorized" not in msg:
+                raise
+            # Refresh/derive API creds once, then retry.
+            client.set_api_creds(client.create_or_derive_api_creds())
+            signed = client.create_order(order_args)
+            return client.post_order(signed, order_type)
 
     def _post_with_retry(self, *, endpoint: str, payload: dict, client_order_id: str) -> OrderSubmission:
         body = json.dumps(payload).encode("utf-8")
