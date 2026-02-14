@@ -41,8 +41,8 @@ def main() -> None:
     alerts = AlertEvaluator(AlertThresholds(p95_copy_delay_ms=800))
     exporter = TelemetryExporter()
     dry_run = DryRunExecutor()
-    order_client = ClobOrderClient(cfg.polymarket, cfg.execution)
     market_cache = MarketMetadataCache(cfg.polymarket)
+    order_client = ClobOrderClient(cfg.polymarket, cfg.execution, market_cache=market_cache)
     policy = IntentPolicy(cfg.sizing, cfg.execution)
     risk_tracker = WindowRiskTracker(cfg.sizing)
     pnl = PnLTracker(fee_bps=Decimal(str(cfg.execution.fee_bps)))
@@ -161,7 +161,12 @@ def main() -> None:
             metrics.record_order_submit(correlation_id, int(time.time() * 1000))
             px = max(source_events[-1].price, Decimal("0.01"))
             size = (decision.intent.target_notional_usd / px).quantize(Decimal("0.0001"))
-            submission = order_client.submit_marketable_limit(intent=decision.intent, price=px, size=size)
+            submission = order_client.submit_marketable_limit(
+                intent=decision.intent,
+                price=px,
+                size=size,
+                market_slug=source_events[-1].market_slug,
+            )
             metrics.record_ack(correlation_id, int(time.time() * 1000), accepted=submission.accepted)
             if submission.accepted:
                 pnl_market_id = source_events[-1].market_slug or decision.intent.market_id

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
 import time
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from coinbot.config import ExecutionConfig, PolymarketConfig
+from coinbot.executor.market_cache import MarketMetadataCache
 from coinbot.schemas import ExecutionIntent
 
 
@@ -63,15 +65,18 @@ class ClobOrderClient:
         self,
         polymarket: PolymarketConfig,
         execution: ExecutionConfig,
+        market_cache: MarketMetadataCache | None = None,
         *,
         max_retries: int = 3,
         request_timeout_s: int = 3,
     ) -> None:
         self._polymarket = polymarket
         self._execution = execution
+        self._market_cache = market_cache
         self._max_retries = max_retries
         self._request_timeout_s = request_timeout_s
         self._log = logging.getLogger(self.__class__.__name__)
+        self._clob_client = None
 
     def submit_marketable_limit(
         self,
@@ -79,6 +84,7 @@ class ClobOrderClient:
         intent: ExecutionIntent,
         price: Decimal,
         size: Decimal,
+        market_slug: str | None = None,
     ) -> OrderSubmission:
         if self._execution.order_type != "marketable_limit":
             raise ValueError(f"Unsupported order type: {self._execution.order_type}")
@@ -106,7 +112,118 @@ class ClobOrderClient:
                 response={"dry_run": True},
             )
 
+        if self._market_cache is not None:
+            live = self._submit_with_py_clob(
+                intent=intent,
+                market_slug=market_slug,
+                price=price,
+                size=size,
+                client_order_id=client_order_id,
+                endpoint=endpoint,
+                payload=payload,
+            )
+            if live is not None:
+                return live
+
         return self._post_with_retry(endpoint=endpoint, payload=payload, client_order_id=client_order_id)
+
+    def _submit_with_py_clob(
+        self,
+        *,
+        intent: ExecutionIntent,
+        market_slug: str | None,
+        price: Decimal,
+        size: Decimal,
+        client_order_id: str,
+        endpoint: str,
+        payload: dict,
+    ) -> OrderSubmission | None:
+        try:
+            token_id = self._resolve_token_id(intent=intent, market_slug=market_slug)
+            if not token_id:
+                self._log.warning("token_id_missing market=%s outcome=%s", market_slug or intent.market_id, intent.outcome)
+                return None
+
+            clob_types = importlib.import_module("py_clob_client.clob_types")
+            order_builder = importlib.import_module("py_clob_client.client")
+            ClobClient = getattr(order_builder, "ClobClient")
+            OrderArgs = getattr(clob_types, "OrderArgs")
+            OrderType = getattr(clob_types, "OrderType")
+
+            client = self._get_or_create_clob_client(ClobClient, clob_types)
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=float(price),
+                size=float(size),
+                side=intent.side.value.upper(),
+            )
+            signed = client.create_order(order_args)
+            order_type = getattr(OrderType, "GTC", None) or getattr(OrderType, "FOK")
+            response = client.post_order(signed, order_type)
+            return OrderSubmission(
+                client_order_id=client_order_id,
+                endpoint=endpoint,
+                payload=payload,
+                accepted=True,
+                status="acknowledged",
+                response=response if isinstance(response, dict) else {"response": str(response)},
+            )
+        except Exception as exc:
+            self._log.warning("py_clob_submit_error client_order_id=%s error=%s", client_order_id, exc)
+            return None
+
+    def _resolve_token_id(self, *, intent: ExecutionIntent, market_slug: str | None) -> str | None:
+        if self._market_cache is None:
+            return None
+        for key in [market_slug, intent.market_id]:
+            if not key:
+                continue
+            try:
+                meta = self._market_cache.get(key)
+            except Exception:
+                continue
+            token_id = meta.outcomes.get(intent.outcome)
+            if token_id:
+                return token_id
+        return None
+
+    def _get_or_create_clob_client(self, ClobClient: object, clob_types: object):
+        if self._clob_client is not None:
+            return self._clob_client
+
+        client = ClobClient(
+            host=self._polymarket.clob_url,
+            key=self._polymarket.private_key,
+            chain_id=self._polymarket.chain_id,
+            signature_type=self._polymarket.signature_type,
+            funder=self._polymarket.funder,
+        )
+        if (
+            self._polymarket.api_key
+            and self._polymarket.api_secret
+            and self._polymarket.api_passphrase
+        ):
+            creds_cls = getattr(clob_types, "ApiCreds", None)
+            if creds_cls is not None:
+                creds = creds_cls(
+                    api_key=self._polymarket.api_key,
+                    api_secret=self._polymarket.api_secret,
+                    api_passphrase=self._polymarket.api_passphrase,
+                )
+                client.set_api_creds(creds)
+            else:
+                client.set_api_creds(
+                    {
+                        "key": self._polymarket.api_key,
+                        "secret": self._polymarket.api_secret,
+                        "passphrase": self._polymarket.api_passphrase,
+                    }
+                )
+        else:
+            # Derive credentials on first use if not provided.
+            client.set_api_creds(client.create_or_derive_api_creds())
+        self._clob_client = client
+        return client
 
     def _post_with_retry(self, *, endpoint: str, payload: dict, client_order_id: str) -> OrderSubmission:
         body = json.dumps(payload).encode("utf-8")

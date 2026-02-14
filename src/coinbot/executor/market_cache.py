@@ -70,12 +70,17 @@ class MarketMetadataCache:
 
         item = _first_item(payload)
         outcomes: dict[str, str] = {}
-        for raw in item.get("outcomes", []) or []:
-            if isinstance(raw, dict):
-                label = str(raw.get("name") or raw.get("outcome") or "")
-                token_id = str(raw.get("tokenId") or raw.get("token_id") or "")
-                if label and token_id:
-                    outcomes[label] = token_id
+        labels = _extract_outcome_labels(item.get("outcomes", []) or [])
+        token_ids = _extract_token_ids(item)
+        if labels and token_ids and len(labels) == len(token_ids):
+            outcomes = {labels[i]: token_ids[i] for i in range(len(labels))}
+        else:
+            for raw in item.get("outcomes", []) or []:
+                if isinstance(raw, dict):
+                    label = str(raw.get("name") or raw.get("outcome") or "")
+                    token_id = str(raw.get("tokenId") or raw.get("token_id") or "")
+                    if label and token_id:
+                        outcomes[label] = token_id
 
         outcome_prices = _extract_outcome_prices(item)
         winning_outcome = _extract_winning_outcome(item, outcome_prices)
@@ -116,20 +121,7 @@ def _looks_like_market(item: dict[str, Any]) -> bool:
 def _extract_outcome_prices(item: dict[str, Any]) -> dict[str, Decimal]:
     prices: dict[str, Decimal] = {}
     raw_outcomes = item.get("outcomes", []) or []
-    labels: list[str] = []
-    if isinstance(raw_outcomes, str):
-        try:
-            parsed_outcomes = json.loads(raw_outcomes)
-            if isinstance(parsed_outcomes, list):
-                raw_outcomes = parsed_outcomes
-        except json.JSONDecodeError:
-            raw_outcomes = []
-    if isinstance(raw_outcomes, list):
-        for raw in raw_outcomes:
-            if isinstance(raw, dict):
-                labels.append(str(raw.get("name") or raw.get("outcome") or ""))
-            elif isinstance(raw, str):
-                labels.append(raw)
+    labels = _extract_outcome_labels(raw_outcomes)
 
     raw_prices = item.get("outcomePrices")
     values: list[Any] = []
@@ -171,3 +163,35 @@ def _to_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _extract_outcome_labels(raw_outcomes: Any) -> list[str]:
+    labels: list[str] = []
+    if isinstance(raw_outcomes, str):
+        try:
+            parsed_outcomes = json.loads(raw_outcomes)
+            if isinstance(parsed_outcomes, list):
+                raw_outcomes = parsed_outcomes
+        except json.JSONDecodeError:
+            raw_outcomes = []
+    if isinstance(raw_outcomes, list):
+        for raw in raw_outcomes:
+            if isinstance(raw, dict):
+                labels.append(str(raw.get("name") or raw.get("outcome") or ""))
+            elif isinstance(raw, str):
+                labels.append(raw)
+    return [l for l in labels if l]
+
+
+def _extract_token_ids(item: dict[str, Any]) -> list[str]:
+    raw_ids = item.get("clobTokenIds", []) or item.get("tokenIds", [])
+    if isinstance(raw_ids, str):
+        try:
+            parsed = json.loads(raw_ids)
+            if isinstance(parsed, list):
+                raw_ids = parsed
+        except json.JSONDecodeError:
+            raw_ids = []
+    if not isinstance(raw_ids, list):
+        return []
+    return [str(x) for x in raw_ids if str(x)]

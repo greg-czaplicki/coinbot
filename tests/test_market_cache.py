@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from decimal import Decimal
 
-from coinbot.executor.market_cache import _extract_outcome_prices
+from coinbot.executor.market_cache import _extract_outcome_prices, _extract_token_ids
 
 
 class MarketCacheTests(unittest.TestCase):
@@ -15,6 +15,11 @@ class MarketCacheTests(unittest.TestCase):
         prices = _extract_outcome_prices(item)
         self.assertEqual(prices.get("Up"), Decimal("0"))
         self.assertEqual(prices.get("Down"), Decimal("1"))
+
+    def test_extract_token_ids_from_string_encoded_list(self) -> None:
+        item = {"clobTokenIds": "[\"123\", \"456\"]"}
+        token_ids = _extract_token_ids(item)
+        self.assertEqual(token_ids, ["123", "456"])
 
 
 if __name__ == "__main__":

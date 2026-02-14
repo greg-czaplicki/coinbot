@@ -17,3 +17,7 @@ Polymarket copy-trading bot focused on low-latency intent-level replication.
 ## Live Safety Profile
 - `EXECUTION_SAFETY_PROFILE=standard`: no automatic cap tightening.
 - `EXECUTION_SAFETY_PROFILE=conservative` (live mode only): clamps caps and slippage for safer initial rollout.
+
+## Live Execution Note
+- Live order submission uses `py-clob-client` for signed CLOB orders.
+- After pulling updates, run `pip install -e .` to ensure dependencies are present.

@@ -46,6 +46,8 @@ class PolymarketConfig:
     data_api_url: str = "https://data-api.polymarket.com"
     gamma_api_url: str = "https://gamma-api.polymarket.com"
     ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/"
+    chain_id: int = 137
+    signature_type: int = 2
     private_key: str = ""
     funder: str = ""
     api_key: str = ""
@@ -152,6 +154,10 @@ def load_config() -> AppConfig:
             dry_run=_get_bool("EXECUTION_DRY_RUN", ExecutionConfig.dry_run),
         ),
         polymarket=PolymarketConfig(
+            chain_id=int(os.getenv("POLYMARKET_CHAIN_ID", PolymarketConfig.chain_id)),
+            signature_type=int(
+                os.getenv("POLYMARKET_SIGNATURE_TYPE", PolymarketConfig.signature_type)
+            ),
             private_key=os.getenv("POLYMARKET_PRIVATE_KEY", ""),
             funder=os.getenv("POLYMARKET_FUNDER", ""),
             api_key=os.getenv("POLYMARKET_API_KEY", ""),
