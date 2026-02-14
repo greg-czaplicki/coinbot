@@ -45,11 +45,11 @@ Exit criteria:
   - [ ] Max market exposure
   - [ ] Max daily traded volume
 - [x] Implement burst coalescing (same market + same outcome + short window) before execution.
-- [ ] Add near-expiry guard (do not open new copied positions in final N seconds of 15m market).
+- [x] Add near-expiry guard (do not open new copied positions in final N seconds of 15m market).
 - [x] Add optional netting mode for rapid opposite trades in same market window.
 - [x] Add intent-net aggregator keyed by `(market_id, outcome, window_id)`.
-- [ ] Drop intents below `min_order_notional_usd`.
-- [ ] Enforce `max_total_notional_per_15m_window_usd` cap.
+- [x] Drop intents below `min_order_notional_usd`.
+- [x] Enforce `max_total_notional_per_15m_window_usd` cap.
 - [ ] Implement kill switch (manual + auto threshold).
 - [ ] Add config validation on startup.
 
@@ -118,5 +118,5 @@ Exit criteria:
 - [x] Add event dedupe store (sqlite).
 - [x] Implement intent-net coalescing queue (`coalesce_ms=300` default).
 - [ ] Add dry-run mode that logs intents and blocked reasons.
-- [ ] Implement capped proportional sizing + near-expiry/window caps.
+- [x] Implement capped proportional sizing + near-expiry/window caps.
 - [ ] Run first live paper session on VPS and collect burst and coalescing metrics.
