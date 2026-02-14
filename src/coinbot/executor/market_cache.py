@@ -56,9 +56,12 @@ class MarketMetadataCache:
             try:
                 req = urllib.request.Request(url, headers=headers, method="GET")
                 with urllib.request.urlopen(req, timeout=4) as resp:
-                    payload = json.loads(resp.read().decode("utf-8"))
-                last_error = None
-                break
+                    candidate = json.loads(resp.read().decode("utf-8"))
+                item = _first_item(candidate)
+                if _looks_like_market(item):
+                    payload = candidate
+                    last_error = None
+                    break
             except Exception as exc:
                 last_error = exc
                 continue
@@ -97,6 +100,17 @@ def _first_item(payload: Any) -> dict[str, Any]:
             return first if isinstance(first, dict) else {}
         return payload
     return {}
+
+
+def _looks_like_market(item: dict[str, Any]) -> bool:
+    if not item:
+        return False
+    return bool(
+        item.get("conditionId")
+        or item.get("slug")
+        or item.get("outcomes")
+        or item.get("outcomePrices")
+    )
 
 
 def _extract_outcome_prices(item: dict[str, Any]) -> dict[str, Decimal]:
