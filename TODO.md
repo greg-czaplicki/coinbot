@@ -25,7 +25,7 @@ Exit criteria:
 - Local service boots and all modules initialize with health checks.
 
 ## Phase 1: Source Wallet Event Ingestion
-- [ ] Implement websocket subscription(s) for source wallet activity.
+- [x] Implement websocket subscription(s) for source wallet activity.
 - [x] Normalize incoming events into internal `TradeEvent` schema.
 - [x] Include market window metadata in normalized events (asset, start/end, outcome side).
 - [x] Add deduplication by event ID + tx hash + sequence rules.
