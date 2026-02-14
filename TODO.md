@@ -50,8 +50,8 @@ Exit criteria:
 - [x] Add intent-net aggregator keyed by `(market_id, outcome, window_id)`.
 - [x] Drop intents below `min_order_notional_usd`.
 - [x] Enforce `max_total_notional_per_15m_window_usd` cap.
-- [ ] Implement kill switch (manual + auto threshold).
-- [ ] Add config validation on startup.
+- [x] Implement kill switch (manual + auto threshold).
+- [x] Add config validation on startup.
 
 Exit criteria:
 - Replay tests show deterministic decision outputs with no risk rule violations.

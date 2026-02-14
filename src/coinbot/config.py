@@ -66,7 +66,7 @@ def _get_bool(key: str, default: bool) -> bool:
 
 def load_config() -> AppConfig:
     load_dotenv()
-    return AppConfig(
+    cfg = AppConfig(
         copy=CopyConfig(
             source_wallet=os.getenv(
                 "COPY_SOURCE_WALLET",
@@ -133,3 +133,32 @@ def load_config() -> AppConfig:
             api_passphrase=os.getenv("POLYMARKET_API_PASSPHRASE", ""),
         ),
     )
+    validate_config(cfg)
+    return cfg
+
+
+def validate_config(cfg: AppConfig) -> None:
+    if not cfg.copy.source_wallet.startswith("0x") or len(cfg.copy.source_wallet) != 42:
+        raise ValueError("COPY_SOURCE_WALLET must be a 42-char 0x address")
+    if cfg.copy.copy_mode not in {"intent_net", "fill_by_fill"}:
+        raise ValueError("COPY_MODE must be one of: intent_net, fill_by_fill")
+    if cfg.copy.coalesce_ms <= 0:
+        raise ValueError("COPY_COALESCE_MS must be > 0")
+    if cfg.sizing.mode not in {"fixed", "proportional", "capped_proportional"}:
+        raise ValueError("SIZING_MODE must be fixed|proportional|capped_proportional")
+    if cfg.sizing.size_multiplier <= 0:
+        raise ValueError("SIZING_SIZE_MULTIPLIER must be > 0")
+    if cfg.sizing.min_order_notional_usd <= 0:
+        raise ValueError("SIZING_MIN_ORDER_NOTIONAL_USD must be > 0")
+    if cfg.sizing.max_notional_per_order_usd < cfg.sizing.min_order_notional_usd:
+        raise ValueError("SIZING_MAX_NOTIONAL_PER_ORDER_USD must be >= min order notional")
+    if cfg.sizing.max_notional_per_market_usd <= 0:
+        raise ValueError("SIZING_MAX_NOTIONAL_PER_MARKET_USD must be > 0")
+    if cfg.sizing.max_total_notional_per_15m_window_usd <= 0:
+        raise ValueError("SIZING_MAX_TOTAL_NOTIONAL_PER_15M_WINDOW_USD must be > 0")
+    if cfg.execution.order_type != "marketable_limit":
+        raise ValueError("EXECUTION_ORDER_TYPE must be marketable_limit in v1")
+    if cfg.execution.max_slippage_bps <= 0:
+        raise ValueError("EXECUTION_MAX_SLIPPAGE_BPS must be > 0")
+    if cfg.execution.near_expiry_cutoff_seconds < 0:
+        raise ValueError("EXECUTION_NEAR_EXPIRY_CUTOFF_SECONDS must be >= 0")
