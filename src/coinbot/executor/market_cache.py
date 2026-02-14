@@ -40,10 +40,29 @@ class MarketMetadataCache:
     def _fetch(self, market_id: str) -> MarketMetadata:
         # Gamma has rich market metadata used to map outcome labels to token IDs.
         query = urllib.parse.urlencode({"id": market_id})
-        url = f"{self._polymarket.gamma_api_url}/markets?{query}"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+        urls = [
+            f"{self._polymarket.gamma_api_url}/markets?{query}",
+            f"{self._polymarket.gamma_api_url}/api/markets?{query}",
+        ]
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "coinbot/0.1 (+https://github.com/greg-czaplicki/coinbot)",
+            "Connection": "keep-alive",
+        }
+        payload: Any = {}
+        last_error: Exception | None = None
+        for url in urls:
+            try:
+                req = urllib.request.Request(url, headers=headers, method="GET")
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                continue
+        if last_error is not None:
+            raise last_error
 
         item = _first_item(payload)
         outcomes: dict[str, str] = {}
