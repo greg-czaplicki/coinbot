@@ -4,7 +4,7 @@ import asyncio
 import tempfile
 import unittest
 import urllib.error
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -27,7 +27,7 @@ class IntegrationFlowTests(unittest.TestCase):
     def test_out_of_order_events_are_coalesced_deterministically(self) -> None:
         async def _run() -> Decimal:
             coalescer = IntentNetCoalescer(CoalescerConfig(coalesce_ms=10))
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             window = MarketWindow(
                 asset="Bitcoin",
                 start_ts=now,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from coinbot.schemas import ExecutionIntent, Side, TradeEvent
@@ -70,7 +70,7 @@ class IntentNetCoalescer:
             side = first_side
 
         return ExecutionIntent(
-            intent_id=f"{market_id}:{outcome}:{int(datetime.now(UTC).timestamp() * 1000)}",
+            intent_id=f"{market_id}:{outcome}:{int(datetime.now(timezone.utc).timestamp() * 1000)}",
             market_id=market_id,
             outcome=outcome,
             side=side,

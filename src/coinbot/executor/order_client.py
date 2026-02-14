@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from coinbot.config import ExecutionConfig, PolymarketConfig
@@ -30,7 +30,7 @@ class OrderLifecycle:
     client_order_id: str
     status: str = "created"
     filled_notional_usd: Decimal = Decimal("0")
-    update_ts: datetime = field(default_factory=lambda: datetime.now(UTC))
+    update_ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class OrderLifecycleStore:
@@ -49,13 +49,13 @@ class OrderLifecycleStore:
         lifecycle = self._orders[client_order_id]
         lifecycle.status = "partial_fill"
         lifecycle.filled_notional_usd += filled_notional_usd
-        lifecycle.update_ts = datetime.now(UTC)
+        lifecycle.update_ts = datetime.now(timezone.utc)
 
     def mark_filled(self, client_order_id: str, filled_notional_usd: Decimal) -> None:
         lifecycle = self._orders[client_order_id]
         lifecycle.status = "filled"
         lifecycle.filled_notional_usd = filled_notional_usd
-        lifecycle.update_ts = datetime.now(UTC)
+        lifecycle.update_ts = datetime.now(timezone.utc)
 
 
 class ClobOrderClient:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 
@@ -32,7 +32,7 @@ class TradeEvent:
     shares: Decimal
     notional_usd: Decimal
     executed_ts: datetime
-    received_ts: datetime = field(default_factory=lambda: datetime.now(UTC))
+    received_ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     window: MarketWindow | None = None
 
 
@@ -46,7 +46,7 @@ class ExecutionIntent:
     max_slippage_bps: int
     coalesced_event_ids: tuple[str, ...]
     window_id: str | None = None
-    created_ts: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass(frozen=True)

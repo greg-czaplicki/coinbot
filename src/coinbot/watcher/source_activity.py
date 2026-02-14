@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -127,13 +127,13 @@ class SourceWalletActivityPoller:
 
 def _parse_ts(value: Any) -> datetime:
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(float(value), tz=UTC)
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
     if isinstance(value, str) and value:
         try:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             pass
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def parse_market_window(title: str, *, now: datetime) -> MarketWindow | None:
@@ -151,8 +151,8 @@ def parse_market_window(title: str, *, now: datetime) -> MarketWindow | None:
     window_id = f"{asset.lower()}:{start_local.strftime('%Y%m%dT%H%M')}"
     return MarketWindow(
         asset=asset,
-        start_ts=start_local.astimezone(UTC),
-        end_ts=end_local.astimezone(UTC),
+        start_ts=start_local.astimezone(timezone.utc),
+        end_ts=end_local.astimezone(timezone.utc),
         duration_seconds=duration,
         window_id=window_id,
     )
