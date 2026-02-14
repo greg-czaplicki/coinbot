@@ -236,12 +236,25 @@ def validate_config(cfg: AppConfig) -> None:
             missing.append("POLYMARKET_PRIVATE_KEY")
         if not cfg.polymarket.funder:
             missing.append("POLYMARKET_FUNDER")
-        if not cfg.polymarket.api_key:
-            missing.append("POLYMARKET_API_KEY")
-        if not cfg.polymarket.api_secret:
-            missing.append("POLYMARKET_API_SECRET")
-        if not cfg.polymarket.api_passphrase:
-            missing.append("POLYMARKET_API_PASSPHRASE")
+        # API creds are optional in live mode; client can derive/refresh from signer key.
+        # If one is provided, require all three to avoid partial invalid credential state.
+        provided = [
+            bool(cfg.polymarket.api_key),
+            bool(cfg.polymarket.api_secret),
+            bool(cfg.polymarket.api_passphrase),
+        ]
+        if any(provided) and not all(provided):
+            missing.extend(
+                [
+                    k
+                    for k, present in [
+                        ("POLYMARKET_API_KEY", provided[0]),
+                        ("POLYMARKET_API_SECRET", provided[1]),
+                        ("POLYMARKET_API_PASSPHRASE", provided[2]),
+                    ]
+                    if not present
+                ]
+            )
         if missing:
             joined = ",".join(missing)
             raise ValueError(f"Missing required Polymarket credentials in live mode: {joined}")
