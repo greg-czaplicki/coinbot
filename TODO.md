@@ -58,11 +58,11 @@ Exit criteria:
 
 ## Phase 3: Execution Engine
 - [ ] Implement market metadata cache (token IDs, market status, tick sizes).
-- [ ] Build order submit path with idempotency keys.
-- [ ] Support `marketable_limit` default execution mode.
-- [ ] Handle rejects/timeouts with bounded retries.
-- [ ] Track ack/fill lifecycle and partial fills.
-- [ ] Ensure coalesced intents create deterministic client order IDs.
+- [x] Build order submit path with idempotency keys.
+- [x] Support `marketable_limit` default execution mode.
+- [x] Handle rejects/timeouts with bounded retries.
+- [x] Track ack/fill lifecycle and partial fills.
+- [x] Ensure coalesced intents create deterministic client order IDs.
 
 Exit criteria:
 - Paper trading simulation: >= 98% successful order submissions under normal conditions.
