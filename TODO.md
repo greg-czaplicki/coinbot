@@ -115,7 +115,7 @@ Exit criteria:
 - [x] Define `TradeEvent`, `ExecutionIntent`, and `RiskSnapshot` schemas.
 - [x] Add 15-minute market window fields to `TradeEvent`.
 - [x] Implement watcher websocket client with reconnect.
-- [ ] Add event dedupe store (sqlite).
+- [x] Add event dedupe store (sqlite).
 - [ ] Implement intent-net coalescing queue (`coalesce_ms=300` default).
 - [ ] Add dry-run mode that logs intents and blocked reasons.
 - [ ] Implement capped proportional sizing + near-expiry/window caps.
