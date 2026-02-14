@@ -9,6 +9,7 @@ from coinbot.executor.dry_run import DryRunExecutor
 from coinbot.telemetry.alerts import AlertEvaluator, AlertThresholds
 from coinbot.telemetry.logging import setup_logging
 from coinbot.telemetry.metrics import MetricsCollector
+from coinbot.telemetry.redaction import redact_secret
 
 
 def main() -> None:
@@ -30,6 +31,7 @@ def main() -> None:
                 "source_wallet": cfg.copy.source_wallet,
                 "copy_mode": cfg.copy.copy_mode,
                 "dry_run": cfg.execution.dry_run,
+                "api_key": redact_secret(cfg.polymarket.api_key),
             }
         },
     )

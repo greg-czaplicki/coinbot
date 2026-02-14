@@ -180,3 +180,18 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("EXECUTION_MAX_SLIPPAGE_BPS must be > 0")
     if cfg.execution.near_expiry_cutoff_seconds < 0:
         raise ValueError("EXECUTION_NEAR_EXPIRY_CUTOFF_SECONDS must be >= 0")
+    if not cfg.execution.dry_run:
+        missing = []
+        if not cfg.polymarket.private_key:
+            missing.append("POLYMARKET_PRIVATE_KEY")
+        if not cfg.polymarket.funder:
+            missing.append("POLYMARKET_FUNDER")
+        if not cfg.polymarket.api_key:
+            missing.append("POLYMARKET_API_KEY")
+        if not cfg.polymarket.api_secret:
+            missing.append("POLYMARKET_API_SECRET")
+        if not cfg.polymarket.api_passphrase:
+            missing.append("POLYMARKET_API_PASSPHRASE")
+        if missing:
+            joined = ",".join(missing)
+            raise ValueError(f"Missing required Polymarket credentials in live mode: {joined}")
