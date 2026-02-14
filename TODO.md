@@ -26,11 +26,11 @@ Exit criteria:
 
 ## Phase 1: Source Wallet Event Ingestion
 - [ ] Implement websocket subscription(s) for source wallet activity.
-- [ ] Normalize incoming events into internal `TradeEvent` schema.
-- [ ] Include market window metadata in normalized events (asset, start/end, outcome side).
+- [x] Normalize incoming events into internal `TradeEvent` schema.
+- [x] Include market window metadata in normalized events (asset, start/end, outcome side).
 - [ ] Add deduplication by event ID + tx hash + sequence rules.
-- [ ] Persist last processed offsets/checkpoints.
-- [ ] Implement reconnect logic with exponential backoff and replay safety.
+- [x] Persist last processed offsets/checkpoints.
+- [x] Implement reconnect logic with exponential backoff and replay safety.
 
 Exit criteria:
 - In paper mode, all source wallet trades are captured and normalized without duplicates for 48h.
