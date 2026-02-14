@@ -2,23 +2,23 @@
 
 ## Phase 0: Foundation
 - [x] Confirm Polymarket API/auth/event interfaces to use for source wallet tracking.
-- [ ] Decide runtime for MVP: Python async stack (recommended first).
-- [ ] Create `.env.example` with required secrets and config keys.
-- [ ] Set source wallet config default to `0x1d0034134e339a309700ff2d34e99fa2d48b0313`.
-- [ ] Add replication config keys and defaults:
-  - [ ] `copy_mode=intent_net`
-  - [ ] `coalesce_ms=300`
-  - [ ] `net_opposite_trades=true`
-  - [ ] `near_expiry_cutoff_seconds=25`
-  - [ ] `max_notional_per_order_usd=25`
-  - [ ] `max_notional_per_market_usd=150`
-  - [ ] `max_total_notional_per_15m_window_usd=400`
-- [ ] Set up project skeleton:
-  - [ ] `src/watcher`
-  - [ ] `src/decision_engine`
-  - [ ] `src/executor`
-  - [ ] `src/state_store`
-  - [ ] `src/telemetry`
+- [x] Decide runtime for MVP: Python async stack (recommended first).
+- [x] Create `.env.example` with required secrets and config keys.
+- [x] Set source wallet config default to `0x1d0034134e339a309700ff2d34e99fa2d48b0313`.
+- [x] Add replication config keys and defaults:
+  - [x] `copy_mode=intent_net`
+  - [x] `coalesce_ms=300`
+  - [x] `net_opposite_trades=true`
+  - [x] `near_expiry_cutoff_seconds=25`
+  - [x] `max_notional_per_order_usd=25`
+  - [x] `max_notional_per_market_usd=150`
+  - [x] `max_total_notional_per_15m_window_usd=400`
+- [x] Set up project skeleton:
+  - [x] `src/watcher`
+  - [x] `src/decision_engine`
+  - [x] `src/executor`
+  - [x] `src/state_store`
+  - [x] `src/telemetry`
 - [ ] Add structured logging and request/event correlation IDs.
 
 Exit criteria:
@@ -111,7 +111,7 @@ Exit criteria:
 
 ## Immediate Next 10 Tasks
 - [x] Pick API endpoints + auth flow.
-- [ ] Define config schema for `intent_net` copy mode + risk caps.
+- [x] Define config schema for `intent_net` copy mode + risk caps.
 - [ ] Define `TradeEvent`, `ExecutionIntent`, and `RiskSnapshot` schemas.
 - [ ] Add 15-minute market window fields to `TradeEvent`.
 - [ ] Implement watcher websocket client with reconnect.
