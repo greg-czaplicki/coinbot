@@ -112,8 +112,8 @@ Exit criteria:
 ## Immediate Next 10 Tasks
 - [x] Pick API endpoints + auth flow.
 - [x] Define config schema for `intent_net` copy mode + risk caps.
-- [ ] Define `TradeEvent`, `ExecutionIntent`, and `RiskSnapshot` schemas.
-- [ ] Add 15-minute market window fields to `TradeEvent`.
+- [x] Define `TradeEvent`, `ExecutionIntent`, and `RiskSnapshot` schemas.
+- [x] Add 15-minute market window fields to `TradeEvent`.
 - [ ] Implement watcher websocket client with reconnect.
 - [ ] Add event dedupe store (sqlite).
 - [ ] Implement intent-net coalescing queue (`coalesce_ms=300` default).
