@@ -1,7 +1,7 @@
 # Build TODO (Latency-First)
 
 ## Phase 0: Foundation
-- [ ] Confirm Polymarket API/auth/event interfaces to use for source wallet tracking.
+- [x] Confirm Polymarket API/auth/event interfaces to use for source wallet tracking.
 - [ ] Decide runtime for MVP: Python async stack (recommended first).
 - [ ] Create `.env.example` with required secrets and config keys.
 - [ ] Set source wallet config default to `0x1d0034134e339a309700ff2d34e99fa2d48b0313`.
@@ -110,7 +110,7 @@ Exit criteria:
 - Decision memo: stay Python or hybrid/full Rust based on measured bottlenecks.
 
 ## Immediate Next 10 Tasks
-- [ ] Pick API endpoints + auth flow.
+- [x] Pick API endpoints + auth flow.
 - [ ] Define config schema for `intent_net` copy mode + risk caps.
 - [ ] Define `TradeEvent`, `ExecutionIntent`, and `RiskSnapshot` schemas.
 - [ ] Add 15-minute market window fields to `TradeEvent`.
