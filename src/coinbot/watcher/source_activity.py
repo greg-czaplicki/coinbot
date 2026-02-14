@@ -106,10 +106,22 @@ class SourceWalletActivityPoller:
         return []
 
     def _normalize(self, raw: dict[str, Any]) -> TradeEvent | None:
-        market_id = str(raw.get("market") or raw.get("marketId") or "")
+        market_id = str(
+            raw.get("market")
+            or raw.get("marketId")
+            or raw.get("conditionId")
+            or raw.get("asset")
+            or ""
+        )
         if not market_id:
             return None
         event_id = str(raw.get("id") or raw.get("activityId") or "")
+        if not event_id:
+            tx_hash = str(raw.get("transactionHash") or "")
+            ts = str(raw.get("timestamp") or "")
+            asset = str(raw.get("asset") or "")
+            usdc = str(raw.get("usdcSize") or raw.get("amount") or "")
+            event_id = f"{tx_hash}:{asset}:{ts}:{usdc}"
         if not event_id:
             return None
 
