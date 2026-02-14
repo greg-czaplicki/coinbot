@@ -57,7 +57,10 @@ _FIELDS = [
     "kill_switch_active",
     "kill_switch_reason",
     "realized_pnl_usd",
+    "realized_settled_pnl_usd",
     "unrealized_pnl_usd",
+    "fees_usd",
+    "net_pnl_usd",
 ]
 
 

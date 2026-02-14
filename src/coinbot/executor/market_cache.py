@@ -5,6 +5,7 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from coinbot.config import PolymarketConfig
@@ -17,6 +18,8 @@ class MarketMetadata:
     closed: bool
     tick_size: str
     outcomes: dict[str, str]
+    winning_outcome: str | None
+    outcome_prices: dict[str, Decimal]
 
 
 class MarketMetadataCache:
@@ -51,12 +54,17 @@ class MarketMetadataCache:
                 if label and token_id:
                     outcomes[label] = token_id
 
+        outcome_prices = _extract_outcome_prices(item)
+        winning_outcome = _extract_winning_outcome(item, outcome_prices)
+
         return MarketMetadata(
             market_id=market_id,
             active=bool(item.get("active", True)),
             closed=bool(item.get("closed", False)),
             tick_size=str(item.get("minimumTickSize") or item.get("tickSize") or "0.01"),
             outcomes=outcomes,
+            winning_outcome=winning_outcome,
+            outcome_prices=outcome_prices,
         )
 
 
@@ -69,3 +77,56 @@ def _first_item(payload: Any) -> dict[str, Any]:
             return first if isinstance(first, dict) else {}
         return payload
     return {}
+
+
+def _extract_outcome_prices(item: dict[str, Any]) -> dict[str, Decimal]:
+    prices: dict[str, Decimal] = {}
+    raw_outcomes = item.get("outcomes", []) or []
+    labels: list[str] = []
+    if isinstance(raw_outcomes, list):
+        for raw in raw_outcomes:
+            if isinstance(raw, dict):
+                labels.append(str(raw.get("name") or raw.get("outcome") or ""))
+            elif isinstance(raw, str):
+                labels.append(raw)
+
+    raw_prices = item.get("outcomePrices")
+    values: list[Any] = []
+    if isinstance(raw_prices, str):
+        try:
+            parsed = json.loads(raw_prices)
+            if isinstance(parsed, list):
+                values = parsed
+        except json.JSONDecodeError:
+            values = []
+    elif isinstance(raw_prices, list):
+        values = raw_prices
+
+    for idx, value in enumerate(values):
+        if idx >= len(labels) or not labels[idx]:
+            continue
+        px = _to_decimal(value)
+        if px is not None:
+            prices[labels[idx]] = px
+    return prices
+
+
+def _extract_winning_outcome(item: dict[str, Any], outcome_prices: dict[str, Decimal]) -> str | None:
+    for key in ["winningOutcome", "resolvedOutcome", "winner", "winnerOutcome", "result"]:
+        raw = item.get(key)
+        if isinstance(raw, str) and raw:
+            return raw
+
+    if outcome_prices:
+        # If a market is resolved and exactly one outcome is priced at 1, treat that as winner.
+        one_outcomes = [k for k, v in outcome_prices.items() if v == Decimal("1")]
+        if len(one_outcomes) == 1:
+            return one_outcomes[0]
+    return None
+
+
+def _to_decimal(value: Any) -> Decimal | None:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None

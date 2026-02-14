@@ -11,3 +11,4 @@ Polymarket copy-trading bot focused on low-latency intent-level replication.
 ## Telemetry Files
 - CSV snapshots: `runs/telemetry/snapshots.csv`
 - JSONL snapshots: `runs/telemetry/snapshots.jsonl`
+- Includes PnL fields: `realized_pnl_usd`, `realized_settled_pnl_usd`, `unrealized_pnl_usd`, `fees_usd`, `net_pnl_usd`

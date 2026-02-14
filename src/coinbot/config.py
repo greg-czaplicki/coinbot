@@ -35,6 +35,7 @@ class ExecutionConfig:
     order_type: str = "marketable_limit"
     max_slippage_bps: int = 120
     near_expiry_cutoff_seconds: int = 25
+    fee_bps: float = 0.0
     dry_run: bool = True
 
 
@@ -137,6 +138,12 @@ def load_config() -> AppConfig:
                     ExecutionConfig.near_expiry_cutoff_seconds,
                 )
             ),
+            fee_bps=float(
+                os.getenv(
+                    "EXECUTION_FEE_BPS",
+                    ExecutionConfig.fee_bps,
+                )
+            ),
             dry_run=_get_bool("EXECUTION_DRY_RUN", ExecutionConfig.dry_run),
         ),
         polymarket=PolymarketConfig(
@@ -180,6 +187,8 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("EXECUTION_MAX_SLIPPAGE_BPS must be > 0")
     if cfg.execution.near_expiry_cutoff_seconds < 0:
         raise ValueError("EXECUTION_NEAR_EXPIRY_CUTOFF_SECONDS must be >= 0")
+    if cfg.execution.fee_bps < 0:
+        raise ValueError("EXECUTION_FEE_BPS must be >= 0")
     if not cfg.execution.dry_run:
         missing = []
         if not cfg.polymarket.private_key:

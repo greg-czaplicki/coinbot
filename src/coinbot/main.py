@@ -12,6 +12,7 @@ from coinbot.config import load_config
 from coinbot.decision_engine.kill_switch import AutoKillGuard, AutoKillThresholds, KillSwitch
 from coinbot.decision_engine.policy import IntentPolicy, WindowRiskTracker
 from coinbot.executor.dry_run import DryRunExecutor
+from coinbot.executor.market_cache import MarketMetadataCache
 from coinbot.executor.order_client import ClobOrderClient
 from coinbot.schemas import ExecutionIntent, Side, TradeEvent
 from coinbot.telemetry.alerts import AlertEvaluator, AlertThresholds
@@ -40,9 +41,10 @@ def main() -> None:
     exporter = TelemetryExporter()
     dry_run = DryRunExecutor()
     order_client = ClobOrderClient(cfg.polymarket, cfg.execution)
+    market_cache = MarketMetadataCache(cfg.polymarket)
     policy = IntentPolicy(cfg.sizing, cfg.execution)
     risk_tracker = WindowRiskTracker(cfg.sizing)
-    pnl = PnLTracker()
+    pnl = PnLTracker(fee_bps=Decimal(str(cfg.execution.fee_bps)))
     kill_switch = KillSwitch()
     auto_kill = AutoKillGuard(
         kill_switch,
@@ -163,6 +165,7 @@ def main() -> None:
 
         now_s = time.time()
         if now_s - last_snapshot_s >= 30:
+            _reconcile_settlements(pnl=pnl, market_cache=market_cache, log=log)
             snapshot = metrics.snapshot()
             pnl_snapshot = pnl.snapshot()
             alert_state = alerts.evaluate(snapshot, ws_disconnect_s=0)
@@ -184,8 +187,11 @@ def main() -> None:
                 "alert_p95_latency": alert_state.p95_latency_breach,
                 "kill_switch_active": kill_switch.check().active,
                 "kill_switch_reason": kill_switch.check().reason,
-                "realized_pnl_usd": str(pnl_snapshot.realized_usd),
+                "realized_pnl_usd": str(pnl_snapshot.realized_trading_usd),
+                "realized_settled_pnl_usd": str(pnl_snapshot.realized_settled_usd),
                 "unrealized_pnl_usd": str(pnl_snapshot.unrealized_usd),
+                "fees_usd": str(pnl_snapshot.fees_usd),
+                "net_pnl_usd": str(pnl_snapshot.net_usd),
             }
             exporter.write_snapshot(payload)
             log.info(
@@ -233,6 +239,38 @@ def _coalesced_intent(
         ),
         ordered,
     )
+
+
+def _reconcile_settlements(
+    *,
+    pnl: PnLTracker,
+    market_cache: MarketMetadataCache,
+    log: logging.Logger,
+) -> None:
+    for market_id in pnl.open_markets():
+        try:
+            meta = market_cache.get(market_id)
+        except Exception as exc:
+            log.warning("settlement_fetch_error market_id=%s error=%s", market_id, exc)
+            continue
+        if not meta.closed:
+            continue
+        settled = pnl.settle_market(
+            market_id=market_id,
+            winning_outcome=meta.winning_outcome,
+            outcome_settle_prices=meta.outcome_prices,
+        )
+        if settled > 0:
+            log.info(
+                "pnl_settlement_applied",
+                extra={
+                    "extra_fields": {
+                        "market_id": market_id,
+                        "winning_outcome": meta.winning_outcome,
+                        "settled_positions": settled,
+                    }
+                },
+            )
 
 
 if __name__ == "__main__":
