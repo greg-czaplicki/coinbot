@@ -85,7 +85,7 @@ def main() -> None:
     last_snapshot_s = 0.0
     while True:
         try:
-            event = queue.get(timeout=2)
+            event = queue.get(timeout=0.1)
             correlation_id = event.event_id or str(uuid4())
             now_ms = int(time.time() * 1000)
             metrics.record_event_receive(correlation_id, now_ms)
@@ -164,10 +164,11 @@ def main() -> None:
             snapshot = metrics.snapshot()
             pnl_snapshot = pnl.snapshot()
             alert_state = alerts.evaluate(snapshot, ws_disconnect_s=0)
-            auto_kill.evaluate(
-                error_rate=snapshot.reject_rate,
-                p95_latency_ms=int(snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else 0),
-            )
+            if not cfg.execution.dry_run:
+                auto_kill.evaluate(
+                    error_rate=snapshot.reject_rate,
+                    p95_latency_ms=int(snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else 0),
+                )
             log.info(
                 "telemetry_snapshot",
                 extra={
