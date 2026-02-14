@@ -57,7 +57,7 @@ Exit criteria:
 - Replay tests show deterministic decision outputs with no risk rule violations.
 
 ## Phase 3: Execution Engine
-- [ ] Implement market metadata cache (token IDs, market status, tick sizes).
+- [x] Implement market metadata cache (token IDs, market status, tick sizes).
 - [x] Build order submit path with idempotency keys.
 - [x] Support `marketable_limit` default execution mode.
 - [x] Handle rejects/timeouts with bounded retries.
