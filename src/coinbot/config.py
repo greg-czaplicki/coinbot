@@ -21,10 +21,12 @@ class CopyConfig:
 @dataclass(frozen=True)
 class SizingConfig:
     mode: str = "capped_proportional"
+    fixed_order_notional_usd: float = 10.0
     size_multiplier: float = 1.0
     min_order_notional_usd: float = 1.0
     max_notional_per_order_usd: float = 25.0
     max_notional_per_market_usd: float = 150.0
+    max_daily_traded_volume_usd: float = 1500.0
     max_total_notional_per_15m_window_usd: float = 400.0
 
 
@@ -81,6 +83,12 @@ def load_config() -> AppConfig:
         ),
         sizing=SizingConfig(
             mode=os.getenv("SIZING_MODE", SizingConfig.mode),
+            fixed_order_notional_usd=float(
+                os.getenv(
+                    "SIZING_FIXED_ORDER_NOTIONAL_USD",
+                    SizingConfig.fixed_order_notional_usd,
+                )
+            ),
             size_multiplier=float(
                 os.getenv("SIZING_SIZE_MULTIPLIER", SizingConfig.size_multiplier)
             ),
@@ -100,6 +108,12 @@ def load_config() -> AppConfig:
                 os.getenv(
                     "SIZING_MAX_NOTIONAL_PER_MARKET_USD",
                     SizingConfig.max_notional_per_market_usd,
+                )
+            ),
+            max_daily_traded_volume_usd=float(
+                os.getenv(
+                    "SIZING_MAX_DAILY_TRADED_VOLUME_USD",
+                    SizingConfig.max_daily_traded_volume_usd,
                 )
             ),
             max_total_notional_per_15m_window_usd=float(
@@ -146,6 +160,8 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("COPY_COALESCE_MS must be > 0")
     if cfg.sizing.mode not in {"fixed", "proportional", "capped_proportional"}:
         raise ValueError("SIZING_MODE must be fixed|proportional|capped_proportional")
+    if cfg.sizing.fixed_order_notional_usd <= 0:
+        raise ValueError("SIZING_FIXED_ORDER_NOTIONAL_USD must be > 0")
     if cfg.sizing.size_multiplier <= 0:
         raise ValueError("SIZING_SIZE_MULTIPLIER must be > 0")
     if cfg.sizing.min_order_notional_usd <= 0:
@@ -154,6 +170,8 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("SIZING_MAX_NOTIONAL_PER_ORDER_USD must be >= min order notional")
     if cfg.sizing.max_notional_per_market_usd <= 0:
         raise ValueError("SIZING_MAX_NOTIONAL_PER_MARKET_USD must be > 0")
+    if cfg.sizing.max_daily_traded_volume_usd <= 0:
+        raise ValueError("SIZING_MAX_DAILY_TRADED_VOLUME_USD must be > 0")
     if cfg.sizing.max_total_notional_per_15m_window_usd <= 0:
         raise ValueError("SIZING_MAX_TOTAL_NOTIONAL_PER_15M_WINDOW_USD must be > 0")
     if cfg.execution.order_type != "marketable_limit":

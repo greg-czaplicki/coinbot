@@ -36,14 +36,14 @@ Exit criteria:
 - In paper mode, all source wallet trades are captured and normalized without duplicates for 48h.
 
 ## Phase 2: Decision + Risk Engine
-- [ ] Implement sizing modes:
-  - [ ] Fixed size
-  - [ ] Proportional
-  - [ ] Capped proportional (default)
-- [ ] Add hard risk checks:
-  - [ ] Max order notional
-  - [ ] Max market exposure
-  - [ ] Max daily traded volume
+- [x] Implement sizing modes:
+  - [x] Fixed size
+  - [x] Proportional
+  - [x] Capped proportional (default)
+- [x] Add hard risk checks:
+  - [x] Max order notional
+  - [x] Max market exposure
+  - [x] Max daily traded volume
 - [x] Implement burst coalescing (same market + same outcome + short window) before execution.
 - [x] Add near-expiry guard (do not open new copied positions in final N seconds of 15m market).
 - [x] Add optional netting mode for rapid opposite trades in same market window.

@@ -23,8 +23,7 @@ class IntentPolicy:
         if self._near_expiry(source_events):
             return DecisionResult(None, "near_expiry_cutoff")
 
-        sized_notional = intent.target_notional_usd * Decimal(str(self._sizing.size_multiplier))
-        sized_notional = min(sized_notional, Decimal(str(self._sizing.max_notional_per_order_usd)))
+        sized_notional = self._size_notional(intent.target_notional_usd)
 
         if sized_notional < Decimal(str(self._sizing.min_order_notional_usd)):
             return DecisionResult(None, "below_min_order_notional")
@@ -43,6 +42,16 @@ class IntentPolicy:
             )
         )
 
+    def _size_notional(self, source_notional: Decimal) -> Decimal:
+        if self._sizing.mode == "fixed":
+            sized = Decimal(str(self._sizing.fixed_order_notional_usd))
+        elif self._sizing.mode == "proportional":
+            sized = source_notional * Decimal(str(self._sizing.size_multiplier))
+        else:
+            sized = source_notional * Decimal(str(self._sizing.size_multiplier))
+            sized = min(sized, Decimal(str(self._sizing.max_notional_per_order_usd)))
+        return min(sized, Decimal(str(self._sizing.max_notional_per_order_usd)))
+
     def _near_expiry(self, source_events: list[TradeEvent]) -> bool:
         if not source_events:
             return False
@@ -57,6 +66,8 @@ class WindowRiskTracker:
     def __init__(self, sizing: SizingConfig) -> None:
         self._sizing = sizing
         self._window_notional: dict[str, Decimal] = {}
+        self._market_notional: dict[str, Decimal] = {}
+        self._daily_notional: Decimal = Decimal("0")
 
     def check_and_apply(self, intent: ExecutionIntent) -> RiskSnapshot:
         window_id = intent.window_id or "na"
@@ -71,9 +82,32 @@ class WindowRiskTracker:
                 blocked=True,
                 blocked_reason="window_cap_exceeded",
             )
+        market_current = self._market_notional.get(intent.market_id, Decimal("0"))
+        market_projected = market_current + intent.target_notional_usd
+        market_cap = Decimal(str(self._sizing.max_notional_per_market_usd))
+        if market_projected > market_cap:
+            return RiskSnapshot(
+                total_notional_today_usd=self._daily_notional,
+                total_notional_current_15m_window_usd=current,
+                market_exposure_usd={intent.market_id: market_current},
+                blocked=True,
+                blocked_reason="market_cap_exceeded",
+            )
+        daily_projected = self._daily_notional + intent.target_notional_usd
+        daily_cap = Decimal(str(self._sizing.max_daily_traded_volume_usd))
+        if daily_projected > daily_cap:
+            return RiskSnapshot(
+                total_notional_today_usd=self._daily_notional,
+                total_notional_current_15m_window_usd=current,
+                market_exposure_usd={intent.market_id: market_current},
+                blocked=True,
+                blocked_reason="daily_cap_exceeded",
+            )
         self._window_notional[window_id] = projected
+        self._market_notional[intent.market_id] = market_projected
+        self._daily_notional = daily_projected
         return RiskSnapshot(
-            total_notional_today_usd=Decimal("0"),
+            total_notional_today_usd=self._daily_notional,
             total_notional_current_15m_window_usd=projected,
-            market_exposure_usd={},
+            market_exposure_usd={intent.market_id: market_projected},
         )
