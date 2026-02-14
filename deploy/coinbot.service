@@ -1,0 +1,20 @@
+[Unit]
+Description=Coinbot Polymarket Copier
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=coinbot
+Group=coinbot
+WorkingDirectory=/opt/coinbot
+EnvironmentFile=/opt/coinbot/.env
+ExecStartPre=/opt/coinbot/scripts/startup-check.sh
+ExecStart=/usr/bin/env PYTHONPATH=src python3 -m coinbot.main
+Restart=always
+RestartSec=2
+StandardOutput=append:/var/log/coinbot/coinbot.log
+StandardError=append:/var/log/coinbot/coinbot.log
+
+[Install]
+WantedBy=multi-user.target

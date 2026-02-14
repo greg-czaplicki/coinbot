@@ -91,10 +91,10 @@ Exit criteria:
   - [x] duplicate events
   - [x] out-of-order events
   - [x] partial outage
-- [ ] Add deployment:
-  - [ ] systemd service
-  - [ ] log rotation
-  - [ ] startup dependency checks
+- [x] Add deployment:
+  - [x] systemd service
+  - [x] log rotation
+  - [x] startup dependency checks
 - [ ] Incident runbook (`RUNBOOK.md`) for common failures.
 
 Exit criteria:
