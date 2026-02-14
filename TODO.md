@@ -19,7 +19,7 @@
   - [x] `src/executor`
   - [x] `src/state_store`
   - [x] `src/telemetry`
-- [ ] Add structured logging and request/event correlation IDs.
+- [x] Add structured logging and request/event correlation IDs.
 
 Exit criteria:
 - Local service boots and all modules initialize with health checks.
@@ -117,6 +117,6 @@ Exit criteria:
 - [x] Implement watcher websocket client with reconnect.
 - [x] Add event dedupe store (sqlite).
 - [x] Implement intent-net coalescing queue (`coalesce_ms=300` default).
-- [ ] Add dry-run mode that logs intents and blocked reasons.
+- [x] Add dry-run mode that logs intents and blocked reasons.
 - [x] Implement capped proportional sizing + near-expiry/window caps.
 - [ ] Run first live paper session on VPS and collect burst and coalescing metrics.
