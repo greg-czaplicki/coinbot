@@ -83,16 +83,26 @@ class SourceWalletActivityPoller:
             "limit": str(self._cfg.limit),
         }
         query = urllib.parse.urlencode(params)
-        url = f"{self._cfg.data_api_url}/activity?{query}"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        if isinstance(payload, list):
-            return payload
-        if isinstance(payload, dict):
-            items = payload.get("data")
-            if isinstance(items, list):
-                return items
+        urls = [
+            f"{self._cfg.data_api_url}/activity?{query}",
+            f"{self._cfg.data_api_url}/api/activity?{query}",
+        ]
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "coinbot/0.1 (+https://github.com/greg-czaplicki/coinbot)",
+            "Connection": "keep-alive",
+        }
+        for url in urls:
+            try:
+                req = urllib.request.Request(url, headers=headers, method="GET")
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                items = _activity_items(payload)
+                if items is not None:
+                    return items
+            except Exception as exc:
+                self._log.warning("source_fetch_error url=%s error=%s", url, exc)
+                continue
         return []
 
     def _normalize(self, raw: dict[str, Any]) -> TradeEvent | None:
@@ -134,6 +144,16 @@ def _parse_ts(value: Any) -> datetime:
         except ValueError:
             pass
     return datetime.now(timezone.utc)
+
+
+def _activity_items(payload: Any) -> list[dict[str, Any]] | None:
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        items = payload.get("data")
+        if isinstance(items, list):
+            return items
+    return None
 
 
 def parse_market_window(title: str, *, now: datetime) -> MarketWindow | None:
