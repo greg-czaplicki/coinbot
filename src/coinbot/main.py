@@ -93,7 +93,8 @@ def main() -> None:
             correlation_id = event.event_id or str(uuid4())
             now_ms = int(time.time() * 1000)
             metrics.record_event_receive(correlation_id, now_ms)
-            pnl.set_mark(event.market_id, event.outcome, event.price)
+            pnl_market_id = event.market_slug or event.market_id
+            pnl.set_mark(pnl_market_id, event.outcome, event.price)
 
             key = _coalesce_key(event, net_opposite=cfg.copy.net_opposite_trades)
             bucket = buckets.get(key)
@@ -154,8 +155,9 @@ def main() -> None:
             submission = order_client.submit_marketable_limit(intent=decision.intent, price=px, size=size)
             metrics.record_ack(correlation_id, int(time.time() * 1000), accepted=submission.accepted)
             if submission.accepted:
+                pnl_market_id = source_events[-1].market_slug or decision.intent.market_id
                 pnl.apply_fill(
-                    market_id=decision.intent.market_id,
+                    market_id=pnl_market_id,
                     outcome=decision.intent.outcome,
                     side=decision.intent.side.value,
                     qty=size,
@@ -251,7 +253,11 @@ def _reconcile_settlements(
         try:
             meta = market_cache.get(market_id)
         except Exception as exc:
-            log.warning("settlement_fetch_error market_id=%s error=%s", market_id, exc)
+            code = getattr(exc, "code", None)
+            if code == 404:
+                log.info("settlement_not_found market_id=%s", market_id)
+            else:
+                log.warning("settlement_fetch_error market_id=%s error=%s", market_id, exc)
             continue
         if not meta.closed:
             continue

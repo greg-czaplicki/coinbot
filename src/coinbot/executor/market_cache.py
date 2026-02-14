@@ -39,10 +39,11 @@ class MarketMetadataCache:
 
     def _fetch(self, market_id: str) -> MarketMetadata:
         # Gamma has rich market metadata used to map outcome labels to token IDs.
-        query = urllib.parse.urlencode({"id": market_id})
         urls = [
-            f"{self._polymarket.gamma_api_url}/markets?{query}",
-            f"{self._polymarket.gamma_api_url}/api/markets?{query}",
+            f"{self._polymarket.gamma_api_url}/markets?{urllib.parse.urlencode({'id': market_id})}",
+            f"{self._polymarket.gamma_api_url}/api/markets?{urllib.parse.urlencode({'id': market_id})}",
+            f"{self._polymarket.gamma_api_url}/markets?{urllib.parse.urlencode({'slug': market_id})}",
+            f"{self._polymarket.gamma_api_url}/api/markets?{urllib.parse.urlencode({'slug': market_id})}",
         ]
         headers = {
             "Accept": "application/json",
