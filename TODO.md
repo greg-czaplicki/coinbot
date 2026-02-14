@@ -87,10 +87,10 @@ Exit criteria:
 ## Phase 5: Hardening for Production
 - [x] Secrets management (no plaintext secrets in repo).
 - [x] Add restart-safe persistence and crash recovery tests.
-- [ ] Add integration tests for:
-  - [ ] duplicate events
-  - [ ] out-of-order events
-  - [ ] partial outage
+- [x] Add integration tests for:
+  - [x] duplicate events
+  - [x] out-of-order events
+  - [x] partial outage
 - [ ] Add deployment:
   - [ ] systemd service
   - [ ] log rotation
