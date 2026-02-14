@@ -61,6 +61,7 @@ _FIELDS = [
     "unrealized_pnl_usd",
     "fees_usd",
     "net_pnl_usd",
+    "final_snapshot",
 ]
 
 

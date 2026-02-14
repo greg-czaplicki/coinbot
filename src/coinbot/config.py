@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 try:
     from dotenv import load_dotenv
@@ -36,6 +36,7 @@ class ExecutionConfig:
     max_slippage_bps: int = 120
     near_expiry_cutoff_seconds: int = 25
     fee_bps: float = 0.0
+    safety_profile: str = "standard"
     dry_run: bool = True
 
 
@@ -144,6 +145,10 @@ def load_config() -> AppConfig:
                     ExecutionConfig.fee_bps,
                 )
             ),
+            safety_profile=os.getenv(
+                "EXECUTION_SAFETY_PROFILE",
+                ExecutionConfig.safety_profile,
+            ),
             dry_run=_get_bool("EXECUTION_DRY_RUN", ExecutionConfig.dry_run),
         ),
         polymarket=PolymarketConfig(
@@ -154,8 +159,36 @@ def load_config() -> AppConfig:
             api_passphrase=os.getenv("POLYMARKET_API_PASSPHRASE", ""),
         ),
     )
+    cfg = apply_safety_profile(cfg)
     validate_config(cfg)
     return cfg
+
+
+def apply_safety_profile(cfg: AppConfig) -> AppConfig:
+    profile = cfg.execution.safety_profile
+    if profile == "standard":
+        return cfg
+    if profile != "conservative":
+        return cfg
+    if cfg.execution.dry_run:
+        return cfg
+
+    sized = replace(
+        cfg.sizing,
+        size_multiplier=min(cfg.sizing.size_multiplier, 0.5),
+        max_notional_per_order_usd=min(cfg.sizing.max_notional_per_order_usd, 5.0),
+        max_notional_per_market_usd=min(cfg.sizing.max_notional_per_market_usd, 25.0),
+        max_daily_traded_volume_usd=min(cfg.sizing.max_daily_traded_volume_usd, 300.0),
+        max_total_notional_per_15m_window_usd=min(
+            cfg.sizing.max_total_notional_per_15m_window_usd, 75.0
+        ),
+    )
+    exe = replace(
+        cfg.execution,
+        max_slippage_bps=min(cfg.execution.max_slippage_bps, 80),
+        near_expiry_cutoff_seconds=min(cfg.execution.near_expiry_cutoff_seconds, 12),
+    )
+    return replace(cfg, sizing=sized, execution=exe)
 
 
 def validate_config(cfg: AppConfig) -> None:
@@ -189,6 +222,8 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("EXECUTION_NEAR_EXPIRY_CUTOFF_SECONDS must be >= 0")
     if cfg.execution.fee_bps < 0:
         raise ValueError("EXECUTION_FEE_BPS must be >= 0")
+    if cfg.execution.safety_profile not in {"standard", "conservative"}:
+        raise ValueError("EXECUTION_SAFETY_PROFILE must be standard|conservative")
     if not cfg.execution.dry_run:
         missing = []
         if not cfg.polymarket.private_key:

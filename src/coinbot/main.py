@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import logging
+import signal
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from queue import Empty, Queue
-from threading import Thread
+from threading import Event, Thread
 from uuid import uuid4
 
-from coinbot.config import load_config
+from coinbot.config import AppConfig, load_config
 from coinbot.decision_engine.kill_switch import AutoKillGuard, AutoKillThresholds, KillSwitch
 from coinbot.decision_engine.policy import IntentPolicy, WindowRiskTracker
 from coinbot.executor.dry_run import DryRunExecutor
@@ -54,6 +55,7 @@ def main() -> None:
     checkpoints = SqliteCheckpointStore()
     queue: Queue[TradeEvent] = Queue(maxsize=5000)
     buckets: dict[str, CoalesceBucket] = {}
+    stop_event = Event()
 
     log.info(
         "coinbot_boot",
@@ -86,8 +88,15 @@ def main() -> None:
     poller_thread = Thread(target=poller.run_forever, name="source-poller", daemon=True)
     poller_thread.start()
 
+    def _handle_signal(signum: int, _frame: object) -> None:
+        log.info("shutdown_signal signum=%s", signum)
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
     last_snapshot_s = 0.0
-    while True:
+    while not stop_event.is_set():
         try:
             event = queue.get(timeout=0.1)
             correlation_id = event.event_id or str(uuid4())
@@ -167,42 +176,32 @@ def main() -> None:
 
         now_s = time.time()
         if now_s - last_snapshot_s >= 30:
-            _reconcile_settlements(pnl=pnl, market_cache=market_cache, log=log)
-            snapshot = metrics.snapshot()
-            pnl_snapshot = pnl.snapshot()
-            alert_state = alerts.evaluate(snapshot, ws_disconnect_s=0)
-            if not cfg.execution.dry_run:
-                auto_kill.evaluate(
-                    error_rate=snapshot.reject_rate,
-                    p95_latency_ms=int(snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else 0),
-                )
-            payload = {
-                "copy_delay_p50_ms": snapshot.copy_delay_ms.p50 if snapshot.copy_delay_ms else None,
-                "copy_delay_p95_ms": snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else None,
-                "copy_delay_p99_ms": snapshot.copy_delay_ms.p99 if snapshot.copy_delay_ms else None,
-                "source_fills": snapshot.source_fills,
-                "destination_orders": snapshot.destination_orders,
-                "coalescing_efficiency": snapshot.coalescing_efficiency,
-                "reject_rate": snapshot.reject_rate,
-                "alert_ws_disconnect": alert_state.websocket_disconnect_breach,
-                "alert_reject_spike": alert_state.reject_spike_breach,
-                "alert_p95_latency": alert_state.p95_latency_breach,
-                "kill_switch_active": kill_switch.check().active,
-                "kill_switch_reason": kill_switch.check().reason,
-                "realized_pnl_usd": str(pnl_snapshot.realized_trading_usd),
-                "realized_settled_pnl_usd": str(pnl_snapshot.realized_settled_usd),
-                "unrealized_pnl_usd": str(pnl_snapshot.unrealized_usd),
-                "fees_usd": str(pnl_snapshot.fees_usd),
-                "net_pnl_usd": str(pnl_snapshot.net_usd),
-            }
-            exporter.write_snapshot(payload)
-            log.info(
-                "telemetry_snapshot",
-                extra={
-                    "extra_fields": payload,
-                },
+            _emit_snapshot(
+                cfg=cfg,
+                log=log,
+                metrics=metrics,
+                alerts=alerts,
+                auto_kill=auto_kill,
+                kill_switch=kill_switch,
+                pnl=pnl,
+                market_cache=market_cache,
+                exporter=exporter,
             )
             last_snapshot_s = now_s
+
+    _emit_snapshot(
+        cfg=cfg,
+        log=log,
+        metrics=metrics,
+        alerts=alerts,
+        auto_kill=auto_kill,
+        kill_switch=kill_switch,
+        pnl=pnl,
+        market_cache=market_cache,
+        exporter=exporter,
+        final=True,
+    )
+    log.info("coinbot_shutdown_complete")
 
 
 def _coalesce_key(event: TradeEvent, *, net_opposite: bool) -> str:
@@ -277,6 +276,52 @@ def _reconcile_settlements(
                     }
                 },
             )
+
+
+def _emit_snapshot(
+    *,
+    cfg: AppConfig,
+    log: logging.Logger,
+    metrics: MetricsCollector,
+    alerts: AlertEvaluator,
+    auto_kill: AutoKillGuard,
+    kill_switch: KillSwitch,
+    pnl: PnLTracker,
+    market_cache: MarketMetadataCache,
+    exporter: TelemetryExporter,
+    final: bool = False,
+) -> None:
+    _reconcile_settlements(pnl=pnl, market_cache=market_cache, log=log)
+    snapshot = metrics.snapshot()
+    pnl_snapshot = pnl.snapshot()
+    alert_state = alerts.evaluate(snapshot, ws_disconnect_s=0)
+    if not cfg.execution.dry_run:
+        auto_kill.evaluate(
+            error_rate=snapshot.reject_rate,
+            p95_latency_ms=int(snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else 0),
+        )
+    payload = {
+        "copy_delay_p50_ms": snapshot.copy_delay_ms.p50 if snapshot.copy_delay_ms else None,
+        "copy_delay_p95_ms": snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else None,
+        "copy_delay_p99_ms": snapshot.copy_delay_ms.p99 if snapshot.copy_delay_ms else None,
+        "source_fills": snapshot.source_fills,
+        "destination_orders": snapshot.destination_orders,
+        "coalescing_efficiency": snapshot.coalescing_efficiency,
+        "reject_rate": snapshot.reject_rate,
+        "alert_ws_disconnect": alert_state.websocket_disconnect_breach,
+        "alert_reject_spike": alert_state.reject_spike_breach,
+        "alert_p95_latency": alert_state.p95_latency_breach,
+        "kill_switch_active": kill_switch.check().active,
+        "kill_switch_reason": kill_switch.check().reason,
+        "realized_pnl_usd": str(pnl_snapshot.realized_trading_usd),
+        "realized_settled_pnl_usd": str(pnl_snapshot.realized_settled_usd),
+        "unrealized_pnl_usd": str(pnl_snapshot.unrealized_usd),
+        "fees_usd": str(pnl_snapshot.fees_usd),
+        "net_pnl_usd": str(pnl_snapshot.net_usd),
+        "final_snapshot": final,
+    }
+    exporter.write_snapshot(payload)
+    log.info("telemetry_snapshot", extra={"extra_fields": payload})
 
 
 if __name__ == "__main__":
