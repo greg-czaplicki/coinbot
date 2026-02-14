@@ -95,7 +95,7 @@ Exit criteria:
   - [x] systemd service
   - [x] log rotation
   - [x] startup dependency checks
-- [ ] Incident runbook (`RUNBOOK.md`) for common failures.
+- [x] Incident runbook (`RUNBOOK.md`) for common failures.
 
 Exit criteria:
 - Bot can run unattended with recovery procedures validated.
