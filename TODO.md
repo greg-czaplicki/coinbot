@@ -114,7 +114,7 @@ Exit criteria:
 - [x] Define config schema for `intent_net` copy mode + risk caps.
 - [x] Define `TradeEvent`, `ExecutionIntent`, and `RiskSnapshot` schemas.
 - [x] Add 15-minute market window fields to `TradeEvent`.
-- [ ] Implement watcher websocket client with reconnect.
+- [x] Implement watcher websocket client with reconnect.
 - [ ] Add event dedupe store (sqlite).
 - [ ] Implement intent-net coalescing queue (`coalesce_ms=300` default).
 - [ ] Add dry-run mode that logs intents and blocked reasons.
