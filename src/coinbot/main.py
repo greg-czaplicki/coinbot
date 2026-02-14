@@ -15,6 +15,7 @@ from coinbot.executor.dry_run import DryRunExecutor
 from coinbot.executor.order_client import ClobOrderClient
 from coinbot.schemas import ExecutionIntent, Side, TradeEvent
 from coinbot.telemetry.alerts import AlertEvaluator, AlertThresholds
+from coinbot.telemetry.exporter import TelemetryExporter
 from coinbot.telemetry.logging import setup_logging
 from coinbot.telemetry.metrics import MetricsCollector
 from coinbot.telemetry.pnl import PnLTracker
@@ -36,6 +37,7 @@ def main() -> None:
     log = logging.getLogger("coinbot.main")
     metrics = MetricsCollector()
     alerts = AlertEvaluator(AlertThresholds(p95_copy_delay_ms=800))
+    exporter = TelemetryExporter()
     dry_run = DryRunExecutor()
     order_client = ClobOrderClient(cfg.polymarket, cfg.execution)
     policy = IntentPolicy(cfg.sizing, cfg.execution)
@@ -169,25 +171,27 @@ def main() -> None:
                     error_rate=snapshot.reject_rate,
                     p95_latency_ms=int(snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else 0),
                 )
+            payload = {
+                "copy_delay_p50_ms": snapshot.copy_delay_ms.p50 if snapshot.copy_delay_ms else None,
+                "copy_delay_p95_ms": snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else None,
+                "copy_delay_p99_ms": snapshot.copy_delay_ms.p99 if snapshot.copy_delay_ms else None,
+                "source_fills": snapshot.source_fills,
+                "destination_orders": snapshot.destination_orders,
+                "coalescing_efficiency": snapshot.coalescing_efficiency,
+                "reject_rate": snapshot.reject_rate,
+                "alert_ws_disconnect": alert_state.websocket_disconnect_breach,
+                "alert_reject_spike": alert_state.reject_spike_breach,
+                "alert_p95_latency": alert_state.p95_latency_breach,
+                "kill_switch_active": kill_switch.check().active,
+                "kill_switch_reason": kill_switch.check().reason,
+                "realized_pnl_usd": str(pnl_snapshot.realized_usd),
+                "unrealized_pnl_usd": str(pnl_snapshot.unrealized_usd),
+            }
+            exporter.write_snapshot(payload)
             log.info(
                 "telemetry_snapshot",
                 extra={
-                    "extra_fields": {
-                        "copy_delay_p50_ms": snapshot.copy_delay_ms.p50 if snapshot.copy_delay_ms else None,
-                        "copy_delay_p95_ms": snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else None,
-                        "copy_delay_p99_ms": snapshot.copy_delay_ms.p99 if snapshot.copy_delay_ms else None,
-                        "source_fills": snapshot.source_fills,
-                        "destination_orders": snapshot.destination_orders,
-                        "coalescing_efficiency": snapshot.coalescing_efficiency,
-                        "reject_rate": snapshot.reject_rate,
-                        "alert_ws_disconnect": alert_state.websocket_disconnect_breach,
-                        "alert_reject_spike": alert_state.reject_spike_breach,
-                        "alert_p95_latency": alert_state.p95_latency_breach,
-                        "kill_switch_active": kill_switch.check().active,
-                        "kill_switch_reason": kill_switch.check().reason,
-                        "realized_pnl_usd": str(pnl_snapshot.realized_usd),
-                        "unrealized_pnl_usd": str(pnl_snapshot.unrealized_usd),
-                    }
+                    "extra_fields": payload,
                 },
             )
             last_snapshot_s = now_s
