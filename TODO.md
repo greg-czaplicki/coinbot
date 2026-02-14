@@ -68,18 +68,18 @@ Exit criteria:
 - Paper trading simulation: >= 98% successful order submissions under normal conditions.
 
 ## Phase 4: Latency Instrumentation & SLOs
-- [ ] Add stage timers:
-  - [ ] event_receive_ts
-  - [ ] decision_ts
-  - [ ] order_submit_ts
-  - [ ] ack_ts/fill_ts
-- [ ] Export p50/p95/p99 dashboards.
-- [ ] Add alerts for:
-  - [ ] websocket disconnect duration
-  - [ ] order reject spike
-  - [ ] p95 latency breach
+- [x] Add stage timers:
+  - [x] event_receive_ts
+  - [x] decision_ts
+  - [x] order_submit_ts
+  - [x] ack_ts/fill_ts
+- [x] Export p50/p95/p99 dashboards.
+- [x] Add alerts for:
+  - [x] websocket disconnect duration
+  - [x] order reject spike
+  - [x] p95 latency breach
 - [ ] Benchmark from Netherlands VPS and record RTT/latency baseline.
-- [ ] Track coalescing efficiency metric (source fills -> destination orders ratio).
+- [x] Track coalescing efficiency metric (source fills -> destination orders ratio).
 
 Exit criteria:
 - 7-day run with stable metrics and documented baseline.
