@@ -51,10 +51,30 @@ class SourceWalletActivityPoller:
         self._log = logging.getLogger(self.__class__.__name__)
 
     def run_forever(self) -> None:
+        last_checkpoint = self._checkpoints.get(self._cfg.stream_name)
+        initialized = last_checkpoint is not None
         while True:
             try:
                 events = self._fetch_activity()
+                if not initialized and events:
+                    # On first boot, anchor at latest event and avoid replaying stale history.
+                    anchor = _raw_event_id(events[0])
+                    if anchor:
+                        self._checkpoints.set(self._cfg.stream_name, anchor)
+                        last_checkpoint = anchor
+                        initialized = True
+                        self._log.info("source_anchor_set event_id=%s", anchor)
+                    time.sleep(self._cfg.poll_interval_s)
+                    continue
+
+                candidates: list[dict[str, Any]] = []
                 for raw in events:
+                    raw_id = _raw_event_id(raw)
+                    if last_checkpoint and raw_id == last_checkpoint:
+                        break
+                    candidates.append(raw)
+
+                for raw in reversed(candidates):
                     event = self._normalize(raw)
                     if event is None:
                         continue
@@ -68,9 +88,12 @@ class SourceWalletActivityPoller:
                         )
                     )
                     if not inserted:
+                        last_checkpoint = event.event_id
+                        self._checkpoints.set(self._cfg.stream_name, last_checkpoint)
                         continue
                     self._on_trade_event(event)
-                    self._checkpoints.set(self._cfg.stream_name, event.event_id)
+                    last_checkpoint = event.event_id
+                    self._checkpoints.set(self._cfg.stream_name, last_checkpoint)
                 time.sleep(self._cfg.poll_interval_s)
             except Exception as exc:
                 self._log.warning("source_poller_error error=%s", exc)
@@ -156,6 +179,17 @@ def _parse_ts(value: Any) -> datetime:
         except ValueError:
             pass
     return datetime.now(timezone.utc)
+
+
+def _raw_event_id(raw: dict[str, Any]) -> str:
+    event_id = str(raw.get("id") or raw.get("activityId") or "")
+    if event_id:
+        return event_id
+    tx_hash = str(raw.get("transactionHash") or "")
+    ts = str(raw.get("timestamp") or "")
+    asset = str(raw.get("asset") or "")
+    usdc = str(raw.get("usdcSize") or raw.get("amount") or "")
+    return f"{tx_hash}:{asset}:{ts}:{usdc}"
 
 
 def _activity_items(payload: Any) -> list[dict[str, Any]] | None:
