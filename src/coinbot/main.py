@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import time
 from dataclasses import dataclass, field
@@ -49,7 +50,15 @@ def main() -> None:
     kill_switch = KillSwitch()
     auto_kill = AutoKillGuard(
         kill_switch,
-        AutoKillThresholds(max_error_rate=0.2, max_p95_latency_ms=1200),
+        AutoKillThresholds(
+            max_error_rate=float(os.getenv("AUTO_KILL_MAX_ERROR_RATE", "0.2")),
+            max_p95_latency_ms=int(os.getenv("AUTO_KILL_MAX_P95_LATENCY_MS", "1200")),
+            recover_max_error_rate=float(os.getenv("AUTO_KILL_RECOVER_MAX_ERROR_RATE", "0.1")),
+            recover_max_p95_latency_ms=int(os.getenv("AUTO_KILL_RECOVER_MAX_P95_LATENCY_MS", "800")),
+            recovery_consecutive_snapshots=int(
+                os.getenv("AUTO_KILL_RECOVERY_CONSECUTIVE_SNAPSHOTS", "2")
+            ),
+        ),
     )
     dedupe = SqliteDedupeStore()
     checkpoints = SqliteCheckpointStore()
