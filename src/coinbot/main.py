@@ -23,6 +23,7 @@ from coinbot.telemetry.logging import setup_logging
 from coinbot.telemetry.metrics import MetricsCollector
 from coinbot.telemetry.pnl import PnLTracker
 from coinbot.telemetry.redaction import redact_secret
+from coinbot.telemetry.shadow import ShadowDecisionLogger
 from coinbot.watcher.source_activity import ActivityPollerConfig, SourceWalletActivityPoller
 from coinbot.state_store.checkpoints import SqliteCheckpointStore
 from coinbot.state_store.dedupe import SqliteDedupeStore
@@ -41,6 +42,7 @@ def main() -> None:
     metrics = MetricsCollector()
     alerts = AlertEvaluator(AlertThresholds(p95_copy_delay_ms=800))
     exporter = TelemetryExporter()
+    shadow = ShadowDecisionLogger()
     dry_run = DryRunExecutor()
     market_cache = MarketMetadataCache(cfg.polymarket)
     order_client = ClobOrderClient(cfg.polymarket, cfg.execution, market_cache=market_cache)
@@ -144,6 +146,14 @@ def main() -> None:
                     correlation_id=correlation_id,
                     blocked_reason=kill_switch.check().reason,
                 )
+                shadow.write(
+                    correlation_id=correlation_id,
+                    market_id=intent.market_id,
+                    window_id=intent.window_id,
+                    target_notional_usd=intent.target_notional_usd,
+                    blocked_reason=kill_switch.check().reason,
+                    executed=False,
+                )
                 continue
 
             decision = policy.apply(intent, source_events)
@@ -155,6 +165,14 @@ def main() -> None:
                     correlation_id=correlation_id,
                     blocked_reason=decision.blocked_reason,
                 )
+                shadow.write(
+                    correlation_id=correlation_id,
+                    market_id=intent.market_id,
+                    window_id=intent.window_id,
+                    target_notional_usd=intent.target_notional_usd,
+                    blocked_reason=decision.blocked_reason,
+                    executed=False,
+                )
                 continue
 
             risk = risk_tracker.check_and_apply(decision.intent)
@@ -164,6 +182,14 @@ def main() -> None:
                     risk=risk,
                     correlation_id=correlation_id,
                     blocked_reason=risk.blocked_reason,
+                )
+                shadow.write(
+                    correlation_id=correlation_id,
+                    market_id=decision.intent.market_id,
+                    window_id=decision.intent.window_id,
+                    target_notional_usd=decision.intent.target_notional_usd,
+                    blocked_reason=risk.blocked_reason,
+                    executed=False,
                 )
                 continue
 
@@ -187,6 +213,14 @@ def main() -> None:
                     price=px,
                 )
             dry_run.execute(intent=decision.intent, risk=risk, correlation_id=correlation_id)
+            shadow.write(
+                correlation_id=correlation_id,
+                market_id=decision.intent.market_id,
+                window_id=decision.intent.window_id,
+                target_notional_usd=decision.intent.target_notional_usd,
+                blocked_reason="" if submission.accepted else "order_rejected",
+                executed=submission.accepted,
+            )
 
         now_s = time.time()
         if now_s - last_snapshot_s >= 30:
