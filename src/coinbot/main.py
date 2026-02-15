@@ -202,7 +202,13 @@ def main() -> None:
                 size=size,
                 market_slug=source_events[-1].market_slug,
             )
-            metrics.record_ack(correlation_id, int(time.time() * 1000), accepted=submission.accepted)
+            counts_toward_reject_rate = submission.error_code != "min_size"
+            metrics.record_ack(
+                correlation_id,
+                int(time.time() * 1000),
+                accepted=submission.accepted,
+                counts_toward_reject_rate=counts_toward_reject_rate,
+            )
             if submission.accepted:
                 pnl_market_id = source_events[-1].market_slug or decision.intent.market_id
                 pnl.apply_fill(
@@ -218,7 +224,15 @@ def main() -> None:
                 market_id=decision.intent.market_id,
                 window_id=decision.intent.window_id,
                 target_notional_usd=decision.intent.target_notional_usd,
-                blocked_reason="" if submission.accepted else "order_rejected",
+                blocked_reason=(
+                    ""
+                    if submission.accepted
+                    else (
+                        "exchange_min_size_reject"
+                        if submission.error_code == "min_size"
+                        else "order_rejected"
+                    )
+                ),
                 executed=submission.accepted,
             )
 

@@ -24,6 +24,24 @@ class MetricsCollectorTests(unittest.TestCase):
         self.assertEqual(second.reject_rate, 0.0)
         self.assertIsNone(second.copy_delay_ms)
 
+    def test_non_error_rejection_is_excluded_from_reject_rate(self) -> None:
+        metrics = MetricsCollector()
+        correlation_id = "cid-2"
+
+        metrics.record_event_receive(correlation_id, 1000)
+        metrics.record_order_submit(correlation_id, 2000)
+        metrics.record_ack(
+            correlation_id,
+            2100,
+            accepted=False,
+            counts_toward_reject_rate=False,
+        )
+
+        snap = metrics.snapshot()
+        window = metrics.snapshot_window()
+        self.assertEqual(snap.reject_rate, 0.0)
+        self.assertEqual(window.reject_rate, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

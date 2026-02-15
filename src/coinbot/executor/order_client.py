@@ -25,6 +25,7 @@ class OrderSubmission:
     status: str
     response: dict = field(default_factory=dict)
     error: str = ""
+    error_code: str = ""
 
 
 @dataclass
@@ -167,6 +168,7 @@ class ClobOrderClient:
                 response=response if isinstance(response, dict) else {"response": str(response)},
             )
         except Exception as exc:
+            error = str(exc)
             self._log.warning("py_clob_submit_error client_order_id=%s error=%s", client_order_id, exc)
             return OrderSubmission(
                 client_order_id=client_order_id,
@@ -174,7 +176,8 @@ class ClobOrderClient:
                 payload=payload,
                 accepted=False,
                 status="rejected",
-                error=str(exc),
+                error=error,
+                error_code=_classify_error_code(error),
             )
 
     def _resolve_token_id(self, *, intent: ExecutionIntent, market_slug: str | None) -> str | None:
@@ -274,13 +277,15 @@ class ClobOrderClient:
                     exc,
                 )
                 if attempt == self._max_retries:
+                    error = str(exc)
                     return OrderSubmission(
                         client_order_id=client_order_id,
                         endpoint=endpoint,
                         payload=payload,
                         accepted=False,
                         status="rejected",
-                        error=str(exc),
+                        error=error,
+                        error_code=_classify_error_code(error),
                     )
                 time.sleep(0.1 * attempt)
 
@@ -292,6 +297,13 @@ class ClobOrderClient:
             status="rejected",
             error="unreachable",
         )
+
+
+def _classify_error_code(error: str) -> str:
+    normalized = error.lower()
+    if "size" in normalized and "lower than the minimum" in normalized:
+        return "min_size"
+    return ""
 
 
 def deterministic_client_order_id(intent: ExecutionIntent) -> str:

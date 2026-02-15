@@ -41,10 +41,12 @@ class MetricsCollector:
         self._destination_orders = 0
         self._submissions = 0
         self._rejections = 0
+        self._excluded_submissions = 0
         self._window_source_fills = 0
         self._window_destination_orders = 0
         self._window_submissions = 0
         self._window_rejections = 0
+        self._window_excluded_submissions = 0
 
     def record_event_receive(self, correlation_id: str, ts_ms: int) -> None:
         self._stage(correlation_id).event_receive_ts_ms = ts_ms
@@ -69,14 +71,25 @@ class MetricsCollector:
             self._copy_delays.append(copy_delay)
             self._window_copy_delays.append(copy_delay)
 
-    def record_ack(self, correlation_id: str, ts_ms: int, *, accepted: bool) -> None:
+    def record_ack(
+        self,
+        correlation_id: str,
+        ts_ms: int,
+        *,
+        accepted: bool,
+        counts_toward_reject_rate: bool = True,
+    ) -> None:
         stage = self._stage(correlation_id)
         stage.ack_ts_ms = ts_ms
         if stage.order_submit_ts_ms is not None:
             self._submit_to_ack_delays.append(ts_ms - stage.order_submit_ts_ms)
         if not accepted:
-            self._rejections += 1
-            self._window_rejections += 1
+            if counts_toward_reject_rate:
+                self._rejections += 1
+                self._window_rejections += 1
+            else:
+                self._excluded_submissions += 1
+                self._window_excluded_submissions += 1
 
     def snapshot(self) -> DashboardSnapshot:
         return DashboardSnapshot(
@@ -86,7 +99,11 @@ class MetricsCollector:
             source_fills=self._source_fills,
             destination_orders=self._destination_orders,
             coalescing_efficiency=self._coalescing_efficiency(),
-            reject_rate=(self._rejections / self._submissions) if self._submissions else 0.0,
+            reject_rate=(
+                self._rejections / (self._submissions - self._excluded_submissions)
+                if (self._submissions - self._excluded_submissions) > 0
+                else 0.0
+            ),
         )
 
     def snapshot_window(self) -> DashboardSnapshot:
@@ -102,8 +119,9 @@ class MetricsCollector:
                 else None
             ),
             reject_rate=(
-                self._window_rejections / self._window_submissions
-                if self._window_submissions
+                self._window_rejections
+                / (self._window_submissions - self._window_excluded_submissions)
+                if (self._window_submissions - self._window_excluded_submissions) > 0
                 else 0.0
             ),
         )
@@ -112,6 +130,7 @@ class MetricsCollector:
         self._window_destination_orders = 0
         self._window_submissions = 0
         self._window_rejections = 0
+        self._window_excluded_submissions = 0
         return snapshot
 
     def _stage(self, correlation_id: str) -> StageTimes:
