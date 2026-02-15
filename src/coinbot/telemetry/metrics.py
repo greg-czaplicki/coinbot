@@ -34,16 +34,22 @@ class MetricsCollector:
     def __init__(self) -> None:
         self._by_correlation: dict[str, StageTimes] = {}
         self._copy_delays: list[float] = []
+        self._window_copy_delays: list[float] = []
         self._decision_delays: list[float] = []
         self._submit_to_ack_delays: list[float] = []
         self._source_fills = 0
         self._destination_orders = 0
         self._submissions = 0
         self._rejections = 0
+        self._window_source_fills = 0
+        self._window_destination_orders = 0
+        self._window_submissions = 0
+        self._window_rejections = 0
 
     def record_event_receive(self, correlation_id: str, ts_ms: int) -> None:
         self._stage(correlation_id).event_receive_ts_ms = ts_ms
         self._source_fills += 1
+        self._window_source_fills += 1
 
     def record_decision(self, correlation_id: str, ts_ms: int) -> None:
         stage = self._stage(correlation_id)
@@ -55,9 +61,13 @@ class MetricsCollector:
         stage = self._stage(correlation_id)
         stage.order_submit_ts_ms = ts_ms
         self._destination_orders += 1
+        self._window_destination_orders += 1
         self._submissions += 1
+        self._window_submissions += 1
         if stage.event_receive_ts_ms is not None:
-            self._copy_delays.append(ts_ms - stage.event_receive_ts_ms)
+            copy_delay = ts_ms - stage.event_receive_ts_ms
+            self._copy_delays.append(copy_delay)
+            self._window_copy_delays.append(copy_delay)
 
     def record_ack(self, correlation_id: str, ts_ms: int, *, accepted: bool) -> None:
         stage = self._stage(correlation_id)
@@ -66,6 +76,7 @@ class MetricsCollector:
             self._submit_to_ack_delays.append(ts_ms - stage.order_submit_ts_ms)
         if not accepted:
             self._rejections += 1
+            self._window_rejections += 1
 
     def snapshot(self) -> DashboardSnapshot:
         return DashboardSnapshot(
@@ -77,6 +88,31 @@ class MetricsCollector:
             coalescing_efficiency=self._coalescing_efficiency(),
             reject_rate=(self._rejections / self._submissions) if self._submissions else 0.0,
         )
+
+    def snapshot_window(self) -> DashboardSnapshot:
+        snapshot = DashboardSnapshot(
+            copy_delay_ms=_summary(self._window_copy_delays),
+            decision_delay_ms=None,
+            submit_to_ack_ms=None,
+            source_fills=self._window_source_fills,
+            destination_orders=self._window_destination_orders,
+            coalescing_efficiency=(
+                self._window_source_fills / self._window_destination_orders
+                if self._window_destination_orders
+                else None
+            ),
+            reject_rate=(
+                self._window_rejections / self._window_submissions
+                if self._window_submissions
+                else 0.0
+            ),
+        )
+        self._window_copy_delays = []
+        self._window_source_fills = 0
+        self._window_destination_orders = 0
+        self._window_submissions = 0
+        self._window_rejections = 0
+        return snapshot
 
     def _stage(self, correlation_id: str) -> StageTimes:
         if correlation_id not in self._by_correlation:

@@ -307,12 +307,15 @@ def _emit_snapshot(
 ) -> None:
     _reconcile_settlements(pnl=pnl, market_cache=market_cache, log=log)
     snapshot = metrics.snapshot()
+    window_snapshot = metrics.snapshot_window()
     pnl_snapshot = pnl.snapshot()
     alert_state = alerts.evaluate(snapshot, ws_disconnect_s=0)
     if not cfg.execution.dry_run:
         auto_kill.evaluate(
-            error_rate=snapshot.reject_rate,
-            p95_latency_ms=int(snapshot.copy_delay_ms.p95 if snapshot.copy_delay_ms else 0),
+            error_rate=window_snapshot.reject_rate,
+            p95_latency_ms=int(
+                window_snapshot.copy_delay_ms.p95 if window_snapshot.copy_delay_ms else 0
+            ),
         )
     payload = {
         "copy_delay_p50_ms": snapshot.copy_delay_ms.p50 if snapshot.copy_delay_ms else None,
