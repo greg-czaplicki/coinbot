@@ -5,6 +5,7 @@ import os
 import signal
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from queue import Empty, Queue
 from threading import Event, Thread
@@ -23,6 +24,7 @@ from coinbot.telemetry.logging import setup_logging
 from coinbot.telemetry.metrics import MetricsCollector
 from coinbot.telemetry.pnl import PnLTracker
 from coinbot.telemetry.redaction import redact_secret
+from coinbot.telemetry.copy_audit import CopyAuditLogger
 from coinbot.telemetry.shadow import ShadowDecisionLogger
 from coinbot.watcher.source_activity import ActivityPollerConfig, SourceWalletActivityPoller
 from coinbot.state_store.checkpoints import SqliteCheckpointStore
@@ -43,6 +45,7 @@ def main() -> None:
     alerts = AlertEvaluator(AlertThresholds(p95_copy_delay_ms=800))
     exporter = TelemetryExporter()
     shadow = ShadowDecisionLogger()
+    copy_audit = CopyAuditLogger()
     dry_run = DryRunExecutor()
     market_cache = MarketMetadataCache(cfg.polymarket)
     order_client = ClobOrderClient(cfg.polymarket, cfg.execution, market_cache=market_cache)
@@ -139,12 +142,44 @@ def main() -> None:
                 continue
             intent, source_events = coalesced
             correlation_id = intent.coalesced_event_ids[0] if intent.coalesced_event_ids else str(uuid4())
+            source_last = source_events[-1]
+            source_abs_notional = sum(abs(event.notional_usd) for event in source_events)
+            source_receive_to_submit_ms = int(
+                (datetime.now(source_last.received_ts.tzinfo) - source_last.received_ts).total_seconds() * 1000
+            )
+            source_exec_to_submit_ms = int(
+                (datetime.now(source_last.executed_ts.tzinfo) - source_last.executed_ts).total_seconds() * 1000
+            )
             if kill_switch.check().active:
                 dry_run.execute(
                     intent=None,
                     risk=None,
                     correlation_id=correlation_id,
                     blocked_reason=kill_switch.check().reason,
+                )
+                copy_audit.write(
+                    {
+                        "correlation_id": correlation_id,
+                        "market_id": intent.market_id,
+                        "window_id": intent.window_id or "",
+                        "outcome": intent.outcome,
+                        "side": intent.side.value,
+                        "source_events": len(source_events),
+                        "source_last_price": source_last.price,
+                        "source_net_notional_usd": intent.target_notional_usd,
+                        "source_abs_notional_usd": source_abs_notional,
+                        "source_exec_to_submit_ms": source_exec_to_submit_ms,
+                        "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                        "bot_target_notional_usd": "",
+                        "bot_price": "",
+                        "bot_size": "",
+                        "size_ratio_vs_source_net": "",
+                        "submitted": False,
+                        "executed": False,
+                        "blocked_reason": kill_switch.check().reason,
+                        "submit_status": "",
+                        "submit_error_code": "",
+                    }
                 )
                 shadow.write(
                     correlation_id=correlation_id,
@@ -165,6 +200,30 @@ def main() -> None:
                     correlation_id=correlation_id,
                     blocked_reason=decision.blocked_reason,
                 )
+                copy_audit.write(
+                    {
+                        "correlation_id": correlation_id,
+                        "market_id": intent.market_id,
+                        "window_id": intent.window_id or "",
+                        "outcome": intent.outcome,
+                        "side": intent.side.value,
+                        "source_events": len(source_events),
+                        "source_last_price": source_last.price,
+                        "source_net_notional_usd": intent.target_notional_usd,
+                        "source_abs_notional_usd": source_abs_notional,
+                        "source_exec_to_submit_ms": source_exec_to_submit_ms,
+                        "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                        "bot_target_notional_usd": "",
+                        "bot_price": "",
+                        "bot_size": "",
+                        "size_ratio_vs_source_net": "",
+                        "submitted": False,
+                        "executed": False,
+                        "blocked_reason": decision.blocked_reason,
+                        "submit_status": "",
+                        "submit_error_code": "",
+                    }
+                )
                 shadow.write(
                     correlation_id=correlation_id,
                     market_id=intent.market_id,
@@ -182,6 +241,34 @@ def main() -> None:
                     risk=risk,
                     correlation_id=correlation_id,
                     blocked_reason=risk.blocked_reason,
+                )
+                copy_audit.write(
+                    {
+                        "correlation_id": correlation_id,
+                        "market_id": decision.intent.market_id,
+                        "window_id": decision.intent.window_id or "",
+                        "outcome": decision.intent.outcome,
+                        "side": decision.intent.side.value,
+                        "source_events": len(source_events),
+                        "source_last_price": source_last.price,
+                        "source_net_notional_usd": intent.target_notional_usd,
+                        "source_abs_notional_usd": source_abs_notional,
+                        "source_exec_to_submit_ms": source_exec_to_submit_ms,
+                        "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                        "bot_target_notional_usd": decision.intent.target_notional_usd,
+                        "bot_price": "",
+                        "bot_size": "",
+                        "size_ratio_vs_source_net": (
+                            float(decision.intent.target_notional_usd / intent.target_notional_usd)
+                            if intent.target_notional_usd > 0
+                            else ""
+                        ),
+                        "submitted": False,
+                        "executed": False,
+                        "blocked_reason": risk.blocked_reason,
+                        "submit_status": "",
+                        "submit_error_code": "",
+                    }
                 )
                 shadow.write(
                     correlation_id=correlation_id,
@@ -219,6 +306,34 @@ def main() -> None:
                     price=px,
                 )
             dry_run.execute(intent=decision.intent, risk=risk, correlation_id=correlation_id)
+            copy_audit.write(
+                {
+                    "correlation_id": correlation_id,
+                    "market_id": decision.intent.market_id,
+                    "window_id": decision.intent.window_id or "",
+                    "outcome": decision.intent.outcome,
+                    "side": decision.intent.side.value,
+                    "source_events": len(source_events),
+                    "source_last_price": source_last.price,
+                    "source_net_notional_usd": intent.target_notional_usd,
+                    "source_abs_notional_usd": source_abs_notional,
+                    "source_exec_to_submit_ms": source_exec_to_submit_ms,
+                    "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                    "bot_target_notional_usd": decision.intent.target_notional_usd,
+                    "bot_price": px,
+                    "bot_size": size,
+                    "size_ratio_vs_source_net": (
+                        float(decision.intent.target_notional_usd / intent.target_notional_usd)
+                        if intent.target_notional_usd > 0
+                        else ""
+                    ),
+                    "submitted": True,
+                    "executed": submission.accepted,
+                    "blocked_reason": "",
+                    "submit_status": submission.status,
+                    "submit_error_code": submission.error_code,
+                }
+            )
             shadow.write(
                 correlation_id=correlation_id,
                 market_id=decision.intent.market_id,
