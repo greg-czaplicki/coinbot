@@ -183,16 +183,20 @@ class ClobOrderClient:
     def _resolve_token_id(self, *, intent: ExecutionIntent, market_slug: str | None) -> str | None:
         if self._market_cache is None:
             return None
-        for key in [market_slug, intent.market_id]:
+        keys = [market_slug, intent.market_id]
+        for key in keys:
             if not key:
                 continue
-            try:
-                meta = self._market_cache.get(key)
-            except Exception:
+            meta = self._market_cache.peek(key)
+            if meta is None:
                 continue
             token_id = meta.outcomes.get(intent.outcome)
             if token_id:
                 return token_id
+        # Avoid blocking submit path on metadata fetches. Warm cache asynchronously.
+        for key in keys:
+            if key:
+                self._market_cache.request(key)
         return None
 
     def _get_or_create_clob_client(self, ClobClient: object, clob_types: object):

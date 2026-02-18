@@ -85,6 +85,7 @@ def main() -> None:
     )
 
     def _enqueue(event: TradeEvent) -> None:
+        market_cache.warm([event.market_slug, event.market_id])
         try:
             queue.put(event, timeout=1)
         except Exception:

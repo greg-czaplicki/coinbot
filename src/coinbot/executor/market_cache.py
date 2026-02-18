@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import queue
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -27,15 +30,62 @@ class MarketMetadataCache:
         self._polymarket = polymarket
         self._ttl_s = ttl_s
         self._cache: dict[str, tuple[float, MarketMetadata]] = {}
+        self._pending: "queue.Queue[str]" = queue.Queue(maxsize=1000)
+        self._inflight: set[str] = set()
+        self._lock = threading.Lock()
+        self._log = logging.getLogger(self.__class__.__name__)
+        self._worker = threading.Thread(target=self._worker_loop, name="market-cache-warmer", daemon=True)
+        self._worker.start()
 
     def get(self, market_id: str) -> MarketMetadata:
         now = time.time()
         cached = self._cache.get(market_id)
-        if cached and now - cached[0] < self._ttl_s:
+        if self._is_fresh(cached, now):
             return cached[1]
         meta = self._fetch(market_id)
         self._cache[market_id] = (now, meta)
         return meta
+
+    def peek(self, market_id: str) -> MarketMetadata | None:
+        cached = self._cache.get(market_id)
+        if self._is_fresh(cached, time.time()):
+            return cached[1]
+        return None
+
+    def request(self, market_id: str) -> None:
+        if not market_id:
+            return
+        if self.peek(market_id) is not None:
+            return
+        with self._lock:
+            if market_id in self._inflight:
+                return
+            self._inflight.add(market_id)
+        try:
+            self._pending.put_nowait(market_id)
+        except queue.Full:
+            with self._lock:
+                self._inflight.discard(market_id)
+
+    def warm(self, market_ids: list[str]) -> None:
+        for market_id in market_ids:
+            self.request(market_id)
+
+    def _worker_loop(self) -> None:
+        while True:
+            market_id = self._pending.get()
+            try:
+                meta = self._fetch(market_id)
+                self._cache[market_id] = (time.time(), meta)
+            except Exception as exc:
+                self._log.debug("market_cache_warm_failed market=%s error=%s", market_id, exc)
+            finally:
+                with self._lock:
+                    self._inflight.discard(market_id)
+                self._pending.task_done()
+
+    def _is_fresh(self, cached: tuple[float, MarketMetadata] | None, now: float) -> bool:
+        return bool(cached and now - cached[0] < self._ttl_s)
 
     def _fetch(self, market_id: str) -> MarketMetadata:
         # Gamma has rich market metadata used to map outcome labels to token IDs.
