@@ -138,6 +138,11 @@ def main() -> None:
         ]
         for key in due_keys:
             bucket = buckets.pop(key)
+            process_start_ms = int(time.time() * 1000)
+            coalesce_wait_ms = max(0, process_start_ms - bucket.first_seen_ms)
+            policy_ms = 0
+            risk_ms = 0
+            submit_ms = 0
             coalesced = _coalesced_intent(bucket.events, max_slippage_bps=cfg.execution.max_slippage_bps)
             if coalesced is None:
                 continue
@@ -151,6 +156,15 @@ def main() -> None:
             source_exec_to_submit_ms = int(
                 (datetime.now(source_last.executed_ts.tzinfo) - source_last.executed_ts).total_seconds() * 1000
             )
+            def _stage_fields() -> dict[str, int | str]:
+                return {
+                    "stage_coalesce_wait_ms": coalesce_wait_ms,
+                    "stage_policy_ms": policy_ms if policy_ms > 0 else "",
+                    "stage_risk_ms": risk_ms if risk_ms > 0 else "",
+                    "stage_submit_ms": submit_ms if submit_ms > 0 else "",
+                    "stage_total_pipeline_ms": max(0, int(time.time() * 1000) - process_start_ms),
+                }
+
             if kill_switch.check().active:
                 dry_run.execute(
                     intent=None,
@@ -180,6 +194,7 @@ def main() -> None:
                         "blocked_reason": kill_switch.check().reason,
                         "submit_status": "",
                         "submit_error_code": "",
+                        **_stage_fields(),
                     }
                 )
                 shadow.write(
@@ -192,7 +207,9 @@ def main() -> None:
                 )
                 continue
 
+            policy_start = time.time()
             decision = policy.apply(intent, source_events)
+            policy_ms = int((time.time() - policy_start) * 1000)
             metrics.record_decision(correlation_id, int(time.time() * 1000))
             if decision.intent is None:
                 dry_run.execute(
@@ -223,6 +240,7 @@ def main() -> None:
                         "blocked_reason": decision.blocked_reason,
                         "submit_status": "",
                         "submit_error_code": "",
+                        **_stage_fields(),
                     }
                 )
                 shadow.write(
@@ -235,7 +253,9 @@ def main() -> None:
                 )
                 continue
 
+            risk_start = time.time()
             risk = risk_tracker.check_and_apply(decision.intent)
+            risk_ms = int((time.time() - risk_start) * 1000)
             if risk.blocked:
                 dry_run.execute(
                     intent=None,
@@ -269,6 +289,7 @@ def main() -> None:
                         "blocked_reason": risk.blocked_reason,
                         "submit_status": "",
                         "submit_error_code": "",
+                        **_stage_fields(),
                     }
                 )
                 shadow.write(
@@ -284,12 +305,14 @@ def main() -> None:
             metrics.record_order_submit(correlation_id, int(time.time() * 1000))
             px = max(source_events[-1].price, Decimal("0.01"))
             size = (decision.intent.target_notional_usd / px).quantize(Decimal("0.0001"))
+            submit_start = time.time()
             submission = order_client.submit_marketable_limit(
                 intent=decision.intent,
                 price=px,
                 size=size,
                 market_slug=source_events[-1].market_slug,
             )
+            submit_ms = int((time.time() - submit_start) * 1000)
             counts_toward_reject_rate = submission.error_code != "min_size"
             metrics.record_ack(
                 correlation_id,
@@ -333,6 +356,7 @@ def main() -> None:
                     "blocked_reason": "",
                     "submit_status": submission.status,
                     "submit_error_code": submission.error_code,
+                    **_stage_fields(),
                 }
             )
             shadow.write(

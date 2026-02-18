@@ -20,6 +20,11 @@ class BucketDecisionStats:
     bot_target_notional_usd: Decimal = Decimal("0")
     size_ratios: list[float] = field(default_factory=list)
     exec_to_submit_ms: list[int] = field(default_factory=list)
+    stage_coalesce_wait_ms: list[int] = field(default_factory=list)
+    stage_policy_ms: list[int] = field(default_factory=list)
+    stage_risk_ms: list[int] = field(default_factory=list)
+    stage_submit_ms: list[int] = field(default_factory=list)
+    stage_total_pipeline_ms: list[int] = field(default_factory=list)
     blocked: Counter[str] = field(default_factory=Counter)
 
 
@@ -57,8 +62,8 @@ def main() -> None:
         buckets = sorted(set(decisions.keys()) | set(pnl.keys()))
         print(f"## {minutes}m")
         print("")
-        print("| bucket_utc | decisions | submitted | executed | submit_ratio | exec_ratio | source_notional | bot_notional | capture_ratio | size_ratio_med | src_exec_to_submit_p50_ms | src_exec_to_submit_p95_ms | pnl_delta_usd | top_block_reasons |")
-        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+        print("| bucket_utc | decisions | submitted | executed | submit_ratio | exec_ratio | source_notional | bot_notional | capture_ratio | size_ratio_med | src_exec_to_submit_p50_ms | src_exec_to_submit_p95_ms | stage_coalesce_p50_ms | stage_policy_p50_ms | stage_risk_p50_ms | stage_submit_p50_ms | stage_total_p50_ms | pnl_delta_usd | top_block_reasons |")
+        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
         for bucket in buckets:
             d = decisions.get(bucket, BucketDecisionStats())
             p = pnl.get(bucket, BucketPnlStats())
@@ -87,6 +92,11 @@ def main() -> None:
                         _fmt_float(_median(d.size_ratios)),
                         _fmt_float(_percentile(d.exec_to_submit_ms, 50)),
                         _fmt_float(_percentile(d.exec_to_submit_ms, 95)),
+                        _fmt_float(_percentile(d.stage_coalesce_wait_ms, 50)),
+                        _fmt_float(_percentile(d.stage_policy_ms, 50)),
+                        _fmt_float(_percentile(d.stage_risk_ms, 50)),
+                        _fmt_float(_percentile(d.stage_submit_ms, 50)),
+                        _fmt_float(_percentile(d.stage_total_pipeline_ms, 50)),
                         _fmt_decimal(pnl_delta),
                         reasons,
                     ]
@@ -94,7 +104,7 @@ def main() -> None:
                 + " |"
             )
         if not buckets:
-            print("| n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | n/a | n/a | n/a | n/a | n/a |")
+            print("| n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
         print("")
 
 
@@ -127,6 +137,21 @@ def load_decisions(path: Path, day: str, interval_minutes: int) -> dict[str, Buc
             exec_to_submit = _to_int(row.get("source_exec_to_submit_ms"))
             if exec_to_submit is not None:
                 b.exec_to_submit_ms.append(exec_to_submit)
+            stage_coalesce_wait = _to_int(row.get("stage_coalesce_wait_ms"))
+            if stage_coalesce_wait is not None:
+                b.stage_coalesce_wait_ms.append(stage_coalesce_wait)
+            stage_policy = _to_int(row.get("stage_policy_ms"))
+            if stage_policy is not None:
+                b.stage_policy_ms.append(stage_policy)
+            stage_risk = _to_int(row.get("stage_risk_ms"))
+            if stage_risk is not None:
+                b.stage_risk_ms.append(stage_risk)
+            stage_submit = _to_int(row.get("stage_submit_ms"))
+            if stage_submit is not None:
+                b.stage_submit_ms.append(stage_submit)
+            stage_total_pipeline = _to_int(row.get("stage_total_pipeline_ms"))
+            if stage_total_pipeline is not None:
+                b.stage_total_pipeline_ms.append(stage_total_pipeline)
 
             reason = str(row.get("blocked_reason", "") or "")
             if reason:
