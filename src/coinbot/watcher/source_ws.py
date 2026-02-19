@@ -46,6 +46,12 @@ class SourceWalletWsWatcher:
 
     async def _on_message(self, message: dict[str, Any]) -> None:
         self._seen_messages += 1
+        if self._seen_messages <= 5:
+            self._log.info(
+                "ws_message_sample idx=%s top_keys=%s",
+                self._seen_messages,
+                sorted(message.keys())[:30],
+            )
         rows = _extract_trade_rows(message)
         self._seen_trade_rows += len(rows)
         matched_in_message = 0
@@ -60,7 +66,7 @@ class SourceWalletWsWatcher:
             self._on_trade_event(event)
             self._emitted_events += 1
 
-        if self._seen_messages % 200 == 0:
+        if self._seen_messages % 20 == 0:
             self._log.info(
                 "ws_source_stats seen_messages=%s trade_rows=%s wallet_matches=%s emitted=%s",
                 self._seen_messages,
@@ -68,7 +74,7 @@ class SourceWalletWsWatcher:
                 self._wallet_matched_rows,
                 self._emitted_events,
             )
-        if rows and matched_in_message == 0 and self._seen_messages % 500 == 0:
+        if rows and matched_in_message == 0 and self._seen_messages % 50 == 0:
             sample = rows[0]
             self._log.info(
                 "ws_trade_no_wallet_match sample_keys=%s",
