@@ -138,11 +138,11 @@ def main() -> None:
         ]
         for key in due_keys:
             bucket = buckets.pop(key)
-            process_start_ms = int(time.time() * 1000)
-            coalesce_wait_ms = max(0, process_start_ms - bucket.first_seen_ms)
-            policy_ms = 0
-            risk_ms = 0
-            submit_ms = 0
+            process_start_ns = time.perf_counter_ns()
+            coalesce_wait_ms = max(0.0, float(int(time.time() * 1000) - bucket.first_seen_ms))
+            policy_ms = 0.0
+            risk_ms = 0.0
+            submit_ms = 0.0
             coalesced = _coalesced_intent(bucket.events, max_slippage_bps=cfg.execution.max_slippage_bps)
             if coalesced is None:
                 continue
@@ -150,19 +150,25 @@ def main() -> None:
             correlation_id = intent.coalesced_event_ids[0] if intent.coalesced_event_ids else str(uuid4())
             source_last = source_events[-1]
             source_abs_notional = sum(abs(event.notional_usd) for event in source_events)
+            source_exec_to_receive_ms = max(
+                0.0,
+                (source_last.received_ts - source_last.executed_ts).total_seconds() * 1000,
+            )
             source_receive_to_submit_ms = int(
                 (datetime.now(source_last.received_ts.tzinfo) - source_last.received_ts).total_seconds() * 1000
             )
             source_exec_to_submit_ms = int(
                 (datetime.now(source_last.executed_ts.tzinfo) - source_last.executed_ts).total_seconds() * 1000
             )
-            def _stage_fields() -> dict[str, int | str]:
+            def _stage_fields() -> dict[str, float | str]:
                 return {
                     "stage_coalesce_wait_ms": coalesce_wait_ms,
-                    "stage_policy_ms": policy_ms if policy_ms > 0 else "",
-                    "stage_risk_ms": risk_ms if risk_ms > 0 else "",
-                    "stage_submit_ms": submit_ms if submit_ms > 0 else "",
-                    "stage_total_pipeline_ms": max(0, int(time.time() * 1000) - process_start_ms),
+                    "stage_policy_ms": round(policy_ms, 3) if policy_ms > 0 else "",
+                    "stage_risk_ms": round(risk_ms, 3) if risk_ms > 0 else "",
+                    "stage_submit_ms": round(submit_ms, 3) if submit_ms > 0 else "",
+                    "stage_total_pipeline_ms": round(
+                        max(0.0, (time.perf_counter_ns() - process_start_ns) / 1_000_000), 3
+                    ),
                 }
 
             if kill_switch.check().active:
@@ -183,6 +189,7 @@ def main() -> None:
                         "source_last_price": source_last.price,
                         "source_net_notional_usd": intent.target_notional_usd,
                         "source_abs_notional_usd": source_abs_notional,
+                        "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                         "source_exec_to_submit_ms": source_exec_to_submit_ms,
                         "source_receive_to_submit_ms": source_receive_to_submit_ms,
                         "bot_target_notional_usd": "",
@@ -207,9 +214,9 @@ def main() -> None:
                 )
                 continue
 
-            policy_start = time.time()
+            policy_start_ns = time.perf_counter_ns()
             decision = policy.apply(intent, source_events)
-            policy_ms = int((time.time() - policy_start) * 1000)
+            policy_ms = (time.perf_counter_ns() - policy_start_ns) / 1_000_000
             metrics.record_decision(correlation_id, int(time.time() * 1000))
             if decision.intent is None:
                 dry_run.execute(
@@ -229,6 +236,7 @@ def main() -> None:
                         "source_last_price": source_last.price,
                         "source_net_notional_usd": intent.target_notional_usd,
                         "source_abs_notional_usd": source_abs_notional,
+                        "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                         "source_exec_to_submit_ms": source_exec_to_submit_ms,
                         "source_receive_to_submit_ms": source_receive_to_submit_ms,
                         "bot_target_notional_usd": "",
@@ -253,9 +261,9 @@ def main() -> None:
                 )
                 continue
 
-            risk_start = time.time()
+            risk_start_ns = time.perf_counter_ns()
             risk = risk_tracker.check_and_apply(decision.intent)
-            risk_ms = int((time.time() - risk_start) * 1000)
+            risk_ms = (time.perf_counter_ns() - risk_start_ns) / 1_000_000
             if risk.blocked:
                 dry_run.execute(
                     intent=None,
@@ -274,6 +282,7 @@ def main() -> None:
                         "source_last_price": source_last.price,
                         "source_net_notional_usd": intent.target_notional_usd,
                         "source_abs_notional_usd": source_abs_notional,
+                        "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                         "source_exec_to_submit_ms": source_exec_to_submit_ms,
                         "source_receive_to_submit_ms": source_receive_to_submit_ms,
                         "bot_target_notional_usd": decision.intent.target_notional_usd,
@@ -305,14 +314,14 @@ def main() -> None:
             metrics.record_order_submit(correlation_id, int(time.time() * 1000))
             px = max(source_events[-1].price, Decimal("0.01"))
             size = (decision.intent.target_notional_usd / px).quantize(Decimal("0.0001"))
-            submit_start = time.time()
+            submit_start_ns = time.perf_counter_ns()
             submission = order_client.submit_marketable_limit(
                 intent=decision.intent,
                 price=px,
                 size=size,
                 market_slug=source_events[-1].market_slug,
             )
-            submit_ms = int((time.time() - submit_start) * 1000)
+            submit_ms = (time.perf_counter_ns() - submit_start_ns) / 1_000_000
             counts_toward_reject_rate = submission.error_code != "min_size"
             metrics.record_ack(
                 correlation_id,
@@ -341,6 +350,7 @@ def main() -> None:
                     "source_last_price": source_last.price,
                     "source_net_notional_usd": intent.target_notional_usd,
                     "source_abs_notional_usd": source_abs_notional,
+                    "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                     "source_exec_to_submit_ms": source_exec_to_submit_ms,
                     "source_receive_to_submit_ms": source_receive_to_submit_ms,
                     "bot_target_notional_usd": decision.intent.target_notional_usd,
