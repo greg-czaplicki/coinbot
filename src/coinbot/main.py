@@ -92,23 +92,27 @@ def main() -> None:
         except Exception:
             log.warning("event_queue_full event_id=%s", event.event_id)
 
-    poller = SourceWalletActivityPoller(
-        ActivityPollerConfig(
-            data_api_url=cfg.polymarket.data_api_url,
-            source_wallet=cfg.copy.source_wallet,
-        ),
-        dedupe=dedupe,
-        checkpoints=checkpoints,
-        on_trade_event=_enqueue,
-    )
-    poller_thread = Thread(target=poller.run_forever, name="source-poller", daemon=True)
-    poller_thread.start()
+    if cfg.copy.source_activity_enabled:
+        poller = SourceWalletActivityPoller(
+            ActivityPollerConfig(
+                data_api_url=cfg.polymarket.data_api_url,
+                source_wallet=cfg.copy.source_wallet,
+            ),
+            dedupe=dedupe,
+            checkpoints=checkpoints,
+            on_trade_event=_enqueue,
+        )
+        poller_thread = Thread(target=poller.run_forever, name="source-poller", daemon=True)
+        poller_thread.start()
+    else:
+        log.info("source_activity_disabled")
     if cfg.copy.source_ws_enabled:
         try:
             from coinbot.watcher.source_ws import SourceWalletWsWatcher
 
             ws_watcher = SourceWalletWsWatcher(
                 ws_url=cfg.polymarket.ws_url,
+                data_api_url=cfg.polymarket.data_api_url,
                 source_wallet=cfg.copy.source_wallet,
                 on_trade_event=_enqueue,
             )

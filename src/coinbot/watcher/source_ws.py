@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -16,10 +19,12 @@ class SourceWalletWsWatcher:
         self,
         *,
         ws_url: str,
+        data_api_url: str,
         source_wallet: str,
         on_trade_event: Callable[[TradeEvent], None],
     ) -> None:
         self._ws_url = ws_url
+        self._data_api_url = data_api_url
         self._source_wallet = source_wallet.lower()
         self._on_trade_event = on_trade_event
         self._log = logging.getLogger(self.__class__.__name__)
@@ -33,9 +38,15 @@ class SourceWalletWsWatcher:
 
     async def _run(self) -> None:
         ws_url = self._market_ws_url(self._ws_url)
-        # Use market endpoint payload.
+        asset_ids = self._discover_asset_ids()
+        self._log.info(
+            "ws_seed_assets count=%s sample=%s",
+            len(asset_ids),
+            asset_ids[:5],
+        )
+        # Polymarket market channel requires assets_ids.
         subscribe_messages = [
-            {"type": "market"},
+            {"type": "market", "assets_ids": asset_ids, "custom_feature_enabled": True},
         ]
         client = ReconnectingWsClient(
             url=ws_url,
@@ -80,6 +91,52 @@ class SourceWalletWsWatcher:
                 "ws_trade_no_wallet_match sample_keys=%s",
                 sorted(sample.keys())[:25],
             )
+
+    def _discover_asset_ids(self) -> list[str]:
+        params = {
+            "user": self._source_wallet,
+            "type": "TRADE",
+            "limit": "400",
+        }
+        query = urllib.parse.urlencode(params)
+        urls = [
+            f"{self._data_api_url}/activity?{query}",
+            f"{self._data_api_url}/api/activity?{query}",
+        ]
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "coinbot/0.1 (+https://github.com/greg-czaplicki/coinbot)",
+            "Connection": "keep-alive",
+        }
+        seen: set[str] = set()
+        for url in urls:
+            try:
+                req = urllib.request.Request(url, headers=headers, method="GET")
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                rows: list[dict[str, Any]]
+                if isinstance(payload, list):
+                    rows = [x for x in payload if isinstance(x, dict)]
+                elif isinstance(payload, dict):
+                    data = payload.get("data")
+                    rows = [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+                else:
+                    rows = []
+                for row in rows:
+                    raw = row.get("asset") or row.get("asset_id") or row.get("token_id")
+                    if raw is None:
+                        continue
+                    token = str(raw).strip()
+                    if token:
+                        seen.add(token)
+                if seen:
+                    break
+            except Exception as exc:
+                self._log.warning("ws_seed_fetch_error url=%s error=%s", url, exc)
+                continue
+        if not seen:
+            self._log.warning("ws_seed_assets_empty")
+        return sorted(seen)
 
     @staticmethod
     def _market_ws_url(raw_url: str) -> str:

@@ -16,6 +16,7 @@ class CopyConfig:
     copy_mode: str = "intent_net"
     coalesce_ms: int = 300
     net_opposite_trades: bool = True
+    source_activity_enabled: bool = True
     source_ws_enabled: bool = False
 
 
@@ -84,6 +85,10 @@ def load_config() -> AppConfig:
             net_opposite_trades=_get_bool(
                 "COPY_NET_OPPOSITE_TRADES",
                 CopyConfig.net_opposite_trades,
+            ),
+            source_activity_enabled=_get_bool(
+                "COPY_SOURCE_ACTIVITY_ENABLED",
+                CopyConfig.source_activity_enabled,
             ),
             source_ws_enabled=_get_bool(
                 "COPY_SOURCE_WS_ENABLED",
