@@ -97,6 +97,8 @@ def main() -> None:
             ActivityPollerConfig(
                 data_api_url=cfg.polymarket.data_api_url,
                 source_wallet=cfg.copy.source_wallet,
+                poll_interval_s=cfg.copy.source_activity_poll_interval_ms / 1000.0,
+                request_timeout_s=cfg.copy.source_activity_http_timeout_ms / 1000.0,
             ),
             dedupe=dedupe,
             checkpoints=checkpoints,

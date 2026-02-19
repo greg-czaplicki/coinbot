@@ -33,6 +33,7 @@ class ActivityPollerConfig:
     poll_interval_s: float = 0.7
     limit: int = 200
     stream_name: str = "source_activity"
+    request_timeout_s: float = 4.0
 
 
 class SourceWalletActivityPoller:
@@ -49,6 +50,8 @@ class SourceWalletActivityPoller:
         self._checkpoints = checkpoints
         self._on_trade_event = on_trade_event
         self._log = logging.getLogger(self.__class__.__name__)
+        self._activity_urls = self._build_activity_urls()
+        self._preferred_activity_url_idx = 0
 
     def run_forever(self) -> None:
         last_checkpoint = self._checkpoints.get(self._cfg.stream_name)
@@ -129,10 +132,7 @@ class SourceWalletActivityPoller:
             "limit": str(self._cfg.limit),
         }
         query = urllib.parse.urlencode(params)
-        urls = [
-            f"{self._cfg.data_api_url}/activity?{query}",
-            f"{self._cfg.data_api_url}/api/activity?{query}",
-        ]
+        urls = [f"{base}?{query}" for base in self._ordered_activity_urls()]
         headers = {
             "Accept": "application/json",
             "User-Agent": "coinbot/0.1 (+https://github.com/greg-czaplicki/coinbot)",
@@ -141,15 +141,33 @@ class SourceWalletActivityPoller:
         for url in urls:
             try:
                 req = urllib.request.Request(url, headers=headers, method="GET")
-                with urllib.request.urlopen(req, timeout=4) as resp:
+                with urllib.request.urlopen(req, timeout=self._cfg.request_timeout_s) as resp:
                     payload = json.loads(resp.read().decode("utf-8"))
                 items = _activity_items(payload)
                 if items is not None:
+                    self._promote_activity_url(url)
                     return items
             except Exception as exc:
                 self._log.warning("source_fetch_error url=%s error=%s", url, exc)
                 continue
         return []
+
+    def _build_activity_urls(self) -> list[str]:
+        root = self._cfg.data_api_url.rstrip("/")
+        return [f"{root}/activity", f"{root}/api/activity"]
+
+    def _ordered_activity_urls(self) -> list[str]:
+        if not self._activity_urls:
+            return []
+        preferred = self._activity_urls[self._preferred_activity_url_idx]
+        return [preferred] + [u for u in self._activity_urls if u != preferred]
+
+    def _promote_activity_url(self, url_with_query: str) -> None:
+        base = url_with_query.split("?", 1)[0]
+        for i, candidate in enumerate(self._activity_urls):
+            if candidate == base:
+                self._preferred_activity_url_idx = i
+                break
 
     def _normalize(self, raw: dict[str, Any]) -> TradeEvent | None:
         market_id = str(
