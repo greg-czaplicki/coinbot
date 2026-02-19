@@ -33,6 +33,9 @@ class TradeEvent:
     notional_usd: Decimal
     executed_ts: datetime
     received_ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    source_exec_to_fetch_ms: float | None = None
+    source_fetch_to_emit_ms: float | None = None
+    source_poll_cycle_ms: float | None = None
     window: MarketWindow | None = None
 
 

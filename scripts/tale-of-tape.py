@@ -20,6 +20,10 @@ class BucketDecisionStats:
     bot_target_notional_usd: Decimal = Decimal("0")
     size_ratios: list[float] = field(default_factory=list)
     exec_to_receive_ms: list[float] = field(default_factory=list)
+    exec_to_fetch_ms: list[float] = field(default_factory=list)
+    fetch_to_emit_ms: list[float] = field(default_factory=list)
+    emit_to_receive_ms: list[float] = field(default_factory=list)
+    poll_cycle_ms: list[float] = field(default_factory=list)
     exec_to_submit_ms: list[int] = field(default_factory=list)
     stage_coalesce_wait_ms: list[int] = field(default_factory=list)
     stage_policy_ms: list[float] = field(default_factory=list)
@@ -65,8 +69,8 @@ def main() -> None:
         buckets = sorted(set(decisions.keys()) | set(pnl.keys()))
         print(f"## {minutes}m")
         print("")
-        print("| bucket_utc | decisions | submitted | executed | submit_ratio | exec_ratio | source_notional | bot_notional | capture_ratio | size_ratio_med | src_exec_to_recv_p50_ms | src_exec_to_recv_p95_ms | src_exec_to_submit_p50_ms | src_exec_to_submit_p95_ms | stage_coalesce_p50_ms | stage_policy_p50_ms | stage_risk_p50_ms | stage_submit_p50_ms | stage_submit_p50_ms_submitted | stage_total_p50_ms | stage_total_p50_ms_submitted | pnl_delta_usd | top_block_reasons |")
-        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+        print("| bucket_utc | decisions | submitted | executed | submit_ratio | exec_ratio | source_notional | bot_notional | capture_ratio | size_ratio_med | src_exec_to_fetch_p50_ms | src_exec_to_fetch_p95_ms | src_fetch_to_emit_p50_ms | src_emit_to_recv_p50_ms | src_exec_to_recv_p50_ms | src_exec_to_recv_p95_ms | src_exec_to_submit_p50_ms | src_exec_to_submit_p95_ms | stage_coalesce_p50_ms | stage_policy_p50_ms | stage_risk_p50_ms | stage_submit_p50_ms | stage_submit_p50_ms_submitted | stage_total_p50_ms | stage_total_p50_ms_submitted | pnl_delta_usd | top_block_reasons |")
+        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
         for bucket in buckets:
             d = decisions.get(bucket, BucketDecisionStats())
             p = pnl.get(bucket, BucketPnlStats())
@@ -93,6 +97,10 @@ def main() -> None:
                         _fmt_decimal(d.bot_target_notional_usd),
                         _fmt_float(capture_ratio),
                         _fmt_float(_median(d.size_ratios)),
+                        _fmt_float(_percentile(d.exec_to_fetch_ms, 50)),
+                        _fmt_float(_percentile(d.exec_to_fetch_ms, 95)),
+                        _fmt_float(_percentile(d.fetch_to_emit_ms, 50)),
+                        _fmt_float(_percentile(d.emit_to_receive_ms, 50)),
                         _fmt_float(_percentile(d.exec_to_receive_ms, 50)),
                         _fmt_float(_percentile(d.exec_to_receive_ms, 95)),
                         _fmt_float(_percentile(d.exec_to_submit_ms, 50)),
@@ -111,7 +119,7 @@ def main() -> None:
                 + " |"
             )
         if not buckets:
-            print("| n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
+            print("| n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
         print("")
 
 
@@ -144,6 +152,18 @@ def load_decisions(path: Path, day: str, interval_minutes: int) -> dict[str, Buc
             exec_to_receive = _to_float(row.get("source_exec_to_receive_ms"))
             if exec_to_receive is not None:
                 b.exec_to_receive_ms.append(exec_to_receive)
+            exec_to_fetch = _to_float(row.get("source_exec_to_fetch_ms"))
+            if exec_to_fetch is not None:
+                b.exec_to_fetch_ms.append(exec_to_fetch)
+            fetch_to_emit = _to_float(row.get("source_fetch_to_emit_ms"))
+            if fetch_to_emit is not None:
+                b.fetch_to_emit_ms.append(fetch_to_emit)
+            emit_to_receive = _to_float(row.get("source_emit_to_receive_ms"))
+            if emit_to_receive is not None:
+                b.emit_to_receive_ms.append(emit_to_receive)
+            poll_cycle = _to_float(row.get("source_poll_cycle_ms"))
+            if poll_cycle is not None:
+                b.poll_cycle_ms.append(poll_cycle)
             exec_to_submit = _to_int(row.get("source_exec_to_submit_ms"))
             if exec_to_submit is not None:
                 b.exec_to_submit_ms.append(exec_to_submit)

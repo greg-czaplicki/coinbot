@@ -7,7 +7,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from datetime import timedelta
 from decimal import Decimal
@@ -55,7 +55,11 @@ class SourceWalletActivityPoller:
         initialized = last_checkpoint is not None
         while True:
             try:
+                poll_cycle_start_ns = time.perf_counter_ns()
+                fetch_start_ns = time.perf_counter_ns()
                 events = self._fetch_activity()
+                fetch_end_ns = time.perf_counter_ns()
+                fetch_ms = (fetch_end_ns - fetch_start_ns) / 1_000_000
                 if not initialized and events:
                     # On first boot, anchor at latest event and avoid replaying stale history.
                     anchor = _raw_event_id(events[0])
@@ -76,8 +80,27 @@ class SourceWalletActivityPoller:
 
                 for raw in reversed(candidates):
                     event = self._normalize(raw)
+                    normalize_end_ns = time.perf_counter_ns()
                     if event is None:
                         continue
+                    now_utc = datetime.now(timezone.utc)
+                    source_exec_to_fetch_ms = max(
+                        0.0,
+                        (now_utc - event.executed_ts).total_seconds() * 1000 - fetch_ms,
+                    )
+                    event = replace(
+                        event,
+                        received_ts=now_utc,
+                        source_exec_to_fetch_ms=round(source_exec_to_fetch_ms, 3),
+                        source_fetch_to_emit_ms=round(
+                            max(0.0, (normalize_end_ns - fetch_end_ns) / 1_000_000),
+                            3,
+                        ),
+                        source_poll_cycle_ms=round(
+                            (time.perf_counter_ns() - poll_cycle_start_ns) / 1_000_000,
+                            3,
+                        ),
+                    )
                     inserted = self._dedupe.mark_seen(
                         EventKey(
                             event_id=event.event_id,

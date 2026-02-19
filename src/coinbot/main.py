@@ -69,6 +69,7 @@ def main() -> None:
     checkpoints = SqliteCheckpointStore()
     queue: Queue[TradeEvent] = Queue(maxsize=5000)
     buckets: dict[str, CoalesceBucket] = {}
+    event_receive_ms_by_id: dict[str, int] = {}
     stop_event = Event()
 
     log.info(
@@ -117,6 +118,7 @@ def main() -> None:
             correlation_id = event.event_id or str(uuid4())
             now_ms = int(time.time() * 1000)
             metrics.record_event_receive(correlation_id, now_ms)
+            event_receive_ms_by_id[event.event_id] = now_ms
             pnl_market_id = event.market_slug or event.market_id
             pnl.set_mark(pnl_market_id, event.outcome, event.price)
 
@@ -150,9 +152,14 @@ def main() -> None:
             correlation_id = intent.coalesced_event_ids[0] if intent.coalesced_event_ids else str(uuid4())
             source_last = source_events[-1]
             source_abs_notional = sum(abs(event.notional_usd) for event in source_events)
+            source_last_receive_ms = event_receive_ms_by_id.get(source_last.event_id, int(time.time() * 1000))
             source_exec_to_receive_ms = max(
                 0.0,
                 (source_last.received_ts - source_last.executed_ts).total_seconds() * 1000,
+            )
+            source_emit_to_receive_ms = max(
+                0.0,
+                float(source_last_receive_ms - int(source_last.received_ts.timestamp() * 1000)),
             )
             source_receive_to_submit_ms = int(
                 (datetime.now(source_last.received_ts.tzinfo) - source_last.received_ts).total_seconds() * 1000
@@ -160,6 +167,30 @@ def main() -> None:
             source_exec_to_submit_ms = int(
                 (datetime.now(source_last.executed_ts.tzinfo) - source_last.executed_ts).total_seconds() * 1000
             )
+
+            def _source_timing_fields() -> dict[str, float | int | str]:
+                return {
+                    "source_exec_to_fetch_ms": (
+                        round(source_last.source_exec_to_fetch_ms, 3)
+                        if source_last.source_exec_to_fetch_ms is not None
+                        else ""
+                    ),
+                    "source_fetch_to_emit_ms": (
+                        round(source_last.source_fetch_to_emit_ms, 3)
+                        if source_last.source_fetch_to_emit_ms is not None
+                        else ""
+                    ),
+                    "source_emit_to_receive_ms": round(source_emit_to_receive_ms, 3),
+                    "source_poll_cycle_ms": (
+                        round(source_last.source_poll_cycle_ms, 3)
+                        if source_last.source_poll_cycle_ms is not None
+                        else ""
+                    ),
+                }
+
+            for source_event in source_events:
+                event_receive_ms_by_id.pop(source_event.event_id, None)
+
             def _stage_fields() -> dict[str, float | str]:
                 return {
                     "stage_coalesce_wait_ms": coalesce_wait_ms,
@@ -192,6 +223,7 @@ def main() -> None:
                         "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                         "source_exec_to_submit_ms": source_exec_to_submit_ms,
                         "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                        **_source_timing_fields(),
                         "bot_target_notional_usd": "",
                         "bot_price": "",
                         "bot_size": "",
@@ -239,6 +271,7 @@ def main() -> None:
                         "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                         "source_exec_to_submit_ms": source_exec_to_submit_ms,
                         "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                        **_source_timing_fields(),
                         "bot_target_notional_usd": "",
                         "bot_price": "",
                         "bot_size": "",
@@ -285,6 +318,7 @@ def main() -> None:
                         "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                         "source_exec_to_submit_ms": source_exec_to_submit_ms,
                         "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                        **_source_timing_fields(),
                         "bot_target_notional_usd": decision.intent.target_notional_usd,
                         "bot_price": "",
                         "bot_size": "",
@@ -353,6 +387,7 @@ def main() -> None:
                     "source_exec_to_receive_ms": round(source_exec_to_receive_ms, 3),
                     "source_exec_to_submit_ms": source_exec_to_submit_ms,
                     "source_receive_to_submit_ms": source_receive_to_submit_ms,
+                    **_source_timing_fields(),
                     "bot_target_notional_usd": decision.intent.target_notional_usd,
                     "bot_price": px,
                     "bot_size": size,
