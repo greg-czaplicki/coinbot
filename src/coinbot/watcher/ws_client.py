@@ -30,6 +30,7 @@ class ReconnectingWsClient:
         self._max_backoff_s = max_backoff_s
         self._log = logging.getLogger(self.__class__.__name__)
         self._stop_event = asyncio.Event()
+        self._recv_count = 0
 
     async def run_forever(self) -> None:
         backoff_s = 1
@@ -58,6 +59,16 @@ class ReconnectingWsClient:
             self._log.info("ws_connected url=%s", self._url)
             while not self._stop_event.is_set():
                 raw = await ws.recv()
+                self._recv_count += 1
+                if self._recv_count <= 5:
+                    self._log.info(
+                        "ws_recv_sample idx=%s raw_type=%s raw_len=%s",
+                        self._recv_count,
+                        type(raw).__name__,
+                        len(raw) if hasattr(raw, "__len__") else "n/a",
+                    )
+                elif self._recv_count % 50 == 0:
+                    self._log.info("ws_recv_progress count=%s", self._recv_count)
                 message = self._parse(raw)
                 await self._on_message(message)
 
