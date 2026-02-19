@@ -4,11 +4,12 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import websockets
 from websockets.client import WebSocketClientProtocol
 
-MessageHandler = Callable[[dict], Awaitable[None]]
+MessageHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class ReconnectingWsClient:
@@ -78,10 +79,13 @@ class ReconnectingWsClient:
             self._log.info("ws_subscribe payload=%s", payload)
 
     @staticmethod
-    def _parse(raw: str | bytes) -> dict:
+    def _parse(raw: str | bytes) -> dict[str, Any]:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
         parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            # Some feeds emit top-level arrays; normalize for handlers.
+            return {"data": parsed}
         if not isinstance(parsed, dict):
-            raise ValueError("Expected dict websocket message")
+            raise ValueError("Expected dict-or-list websocket message")
         return parsed
