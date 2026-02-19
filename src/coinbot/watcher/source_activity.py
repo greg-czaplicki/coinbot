@@ -189,6 +189,7 @@ class SourceWalletActivityPoller:
             shares=shares,
             notional_usd=notional,
             executed_ts=executed_ts,
+            source_path="activity_api",
             window=parse_market_window(market_title, now=executed_ts),
         )
 

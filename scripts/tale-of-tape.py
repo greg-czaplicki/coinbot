@@ -43,6 +43,16 @@ class BucketPnlStats:
     last_net: Decimal | None = None
 
 
+@dataclass
+class SourcePathStats:
+    decisions: int = 0
+    submitted: int = 0
+    executed: int = 0
+    exec_to_fetch_ms: list[float] = field(default_factory=list)
+    exec_to_receive_ms: list[float] = field(default_factory=list)
+    exec_to_submit_ms: list[float] = field(default_factory=list)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="5m/15m tale-of-the-tape rollup")
     parser.add_argument("--audit", default="runs/telemetry/copy_audit.jsonl")
@@ -63,6 +73,34 @@ def main() -> None:
     intervals = _parse_intervals(args.intervals)
     print(f"# Tale Of The Tape ({args.date})")
     print("")
+    source_paths = load_source_path_summary(audit_path, args.date)
+    print("## Source Paths")
+    print("")
+    print("| source_path | decisions | submitted | executed | submit_ratio | exec_ratio | src_exec_to_fetch_p50_ms | src_exec_to_recv_p50_ms | src_exec_to_submit_p50_ms |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    if source_paths:
+        for source_path, s in sorted(source_paths.items(), key=lambda kv: kv[0]):
+            print(
+                "| "
+                + " | ".join(
+                    [
+                        source_path,
+                        str(s.decisions),
+                        str(s.submitted),
+                        str(s.executed),
+                        _fmt_float(_ratio(s.submitted, s.decisions)),
+                        _fmt_float(_ratio(s.executed, s.decisions)),
+                        _fmt_float(_percentile(s.exec_to_fetch_ms, 50)),
+                        _fmt_float(_percentile(s.exec_to_receive_ms, 50)),
+                        _fmt_float(_percentile(s.exec_to_submit_ms, 50)),
+                    ]
+                )
+                + " |"
+            )
+    else:
+        print("| n/a | 0 | 0 | 0 | 0 | 0 | n/a | n/a | n/a |")
+    print("")
+
     for minutes in intervals:
         decisions = load_decisions(audit_path, args.date, minutes)
         pnl = load_pnl(snapshots_path, args.date, minutes)
@@ -212,6 +250,33 @@ def load_pnl(path: Path, day: str, interval_minutes: int) -> dict[str, BucketPnl
             if b.last_ts is None or ts > b.last_ts:
                 b.last_ts = ts
                 b.last_net = net
+    return stats
+
+
+def load_source_path_summary(path: Path, day: str) -> dict[str, SourcePathStats]:
+    stats: dict[str, SourcePathStats] = defaultdict(SourcePathStats)
+    with path.open("r", encoding="utf-8") as fp:
+        for line in fp:
+            row = _parse_json(line)
+            ts = _parse_ts(row.get("ts", ""))
+            if ts is None or ts.strftime("%Y-%m-%d") != day:
+                continue
+            source_path = str(row.get("source_path") or "unknown")
+            s = stats[source_path]
+            s.decisions += 1
+            if bool(row.get("submitted", False)):
+                s.submitted += 1
+            if bool(row.get("executed", False)):
+                s.executed += 1
+            exec_to_fetch = _to_float(row.get("source_exec_to_fetch_ms"))
+            if exec_to_fetch is not None:
+                s.exec_to_fetch_ms.append(exec_to_fetch)
+            exec_to_receive = _to_float(row.get("source_exec_to_receive_ms"))
+            if exec_to_receive is not None:
+                s.exec_to_receive_ms.append(exec_to_receive)
+            exec_to_submit = _to_float(row.get("source_exec_to_submit_ms"))
+            if exec_to_submit is not None:
+                s.exec_to_submit_ms.append(exec_to_submit)
     return stats
 
 

@@ -27,6 +27,7 @@ from coinbot.telemetry.redaction import redact_secret
 from coinbot.telemetry.copy_audit import CopyAuditLogger
 from coinbot.telemetry.shadow import ShadowDecisionLogger
 from coinbot.watcher.source_activity import ActivityPollerConfig, SourceWalletActivityPoller
+from coinbot.watcher.source_ws import SourceWalletWsWatcher
 from coinbot.state_store.checkpoints import SqliteCheckpointStore
 from coinbot.state_store.dedupe import SqliteDedupeStore
 
@@ -103,6 +104,15 @@ def main() -> None:
     )
     poller_thread = Thread(target=poller.run_forever, name="source-poller", daemon=True)
     poller_thread.start()
+    if cfg.copy.source_ws_enabled:
+        ws_watcher = SourceWalletWsWatcher(
+            ws_url=cfg.polymarket.ws_url,
+            source_wallet=cfg.copy.source_wallet,
+            on_trade_event=_enqueue,
+        )
+        ws_thread = Thread(target=ws_watcher.run_forever, name="source-ws", daemon=True)
+        ws_thread.start()
+        log.info("source_ws_enabled url=%s", cfg.polymarket.ws_url)
 
     def _handle_signal(signum: int, _frame: object) -> None:
         log.info("shutdown_signal signum=%s", signum)
@@ -151,6 +161,7 @@ def main() -> None:
             intent, source_events = coalesced
             correlation_id = intent.coalesced_event_ids[0] if intent.coalesced_event_ids else str(uuid4())
             source_last = source_events[-1]
+            source_path = source_last.source_path or "unknown"
             source_abs_notional = sum(abs(event.notional_usd) for event in source_events)
             source_last_receive_ms = event_receive_ms_by_id.get(source_last.event_id, int(time.time() * 1000))
             source_exec_to_receive_ms = max(
@@ -213,6 +224,7 @@ def main() -> None:
                     {
                         "correlation_id": correlation_id,
                         "market_id": intent.market_id,
+                        "source_path": source_path,
                         "window_id": intent.window_id or "",
                         "outcome": intent.outcome,
                         "side": intent.side.value,
@@ -261,6 +273,7 @@ def main() -> None:
                     {
                         "correlation_id": correlation_id,
                         "market_id": intent.market_id,
+                        "source_path": source_path,
                         "window_id": intent.window_id or "",
                         "outcome": intent.outcome,
                         "side": intent.side.value,
@@ -308,6 +321,7 @@ def main() -> None:
                     {
                         "correlation_id": correlation_id,
                         "market_id": decision.intent.market_id,
+                        "source_path": source_path,
                         "window_id": decision.intent.window_id or "",
                         "outcome": decision.intent.outcome,
                         "side": decision.intent.side.value,
@@ -377,6 +391,7 @@ def main() -> None:
                 {
                     "correlation_id": correlation_id,
                     "market_id": decision.intent.market_id,
+                    "source_path": source_path,
                     "window_id": decision.intent.window_id or "",
                     "outcome": decision.intent.outcome,
                     "side": decision.intent.side.value,
