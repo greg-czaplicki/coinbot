@@ -28,13 +28,13 @@ class SourceWalletWsWatcher:
         asyncio.run(self._run())
 
     async def _run(self) -> None:
-        # Keep subscriptions broad and rely on wallet filtering in parser.
+        ws_url = self._market_ws_url(self._ws_url)
+        # Market channel subscription for broad tape; wallet filtering happens in parser.
         subscribe_messages = [
-            {"type": "subscribe", "channel": "market"},
-            {"type": "subscribe", "channel": "user", "address": self._source_wallet},
+            {"type": "market"},
         ]
         client = ReconnectingWsClient(
-            url=self._ws_url,
+            url=ws_url,
             subscribe_messages=subscribe_messages,
             on_message=self._on_message,
         )
@@ -48,6 +48,16 @@ class SourceWalletWsWatcher:
             if event is None:
                 continue
             self._on_trade_event(event)
+
+    @staticmethod
+    def _market_ws_url(raw_url: str) -> str:
+        # Accept either .../ws/ or .../ws and normalize to .../ws/market.
+        url = raw_url.rstrip("/")
+        if url.endswith("/ws"):
+            return f"{url}/market"
+        if url.endswith("/market"):
+            return url
+        return f"{url}/market"
 
 
 def _extract_trade_rows(message: dict[str, Any]) -> list[dict[str, Any]]:

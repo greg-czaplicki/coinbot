@@ -159,6 +159,10 @@ def load_config() -> AppConfig:
             dry_run=_get_bool("EXECUTION_DRY_RUN", ExecutionConfig.dry_run),
         ),
         polymarket=PolymarketConfig(
+            clob_url=os.getenv("POLYMARKET_CLOB_URL", PolymarketConfig.clob_url),
+            data_api_url=os.getenv("POLYMARKET_DATA_API_URL", PolymarketConfig.data_api_url),
+            gamma_api_url=os.getenv("POLYMARKET_GAMMA_API_URL", PolymarketConfig.gamma_api_url),
+            ws_url=os.getenv("POLYMARKET_WS_URL", PolymarketConfig.ws_url),
             chain_id=int(os.getenv("POLYMARKET_CHAIN_ID", PolymarketConfig.chain_id)),
             signature_type=int(
                 os.getenv("POLYMARKET_SIGNATURE_TYPE", PolymarketConfig.signature_type)
