@@ -23,6 +23,10 @@ class SourceWalletWsWatcher:
         self._source_wallet = source_wallet.lower()
         self._on_trade_event = on_trade_event
         self._log = logging.getLogger(self.__class__.__name__)
+        self._seen_messages = 0
+        self._seen_trade_rows = 0
+        self._wallet_matched_rows = 0
+        self._emitted_events = 0
 
     def run_forever(self) -> None:
         asyncio.run(self._run())
@@ -41,13 +45,35 @@ class SourceWalletWsWatcher:
         await client.run_forever()
 
     async def _on_message(self, message: dict[str, Any]) -> None:
-        for row in _extract_trade_rows(message):
+        self._seen_messages += 1
+        rows = _extract_trade_rows(message)
+        self._seen_trade_rows += len(rows)
+        matched_in_message = 0
+        for row in rows:
             if not _wallet_matches(row, self._source_wallet):
                 continue
+            self._wallet_matched_rows += 1
+            matched_in_message += 1
             event = _normalize_trade(row, self._source_wallet)
             if event is None:
                 continue
             self._on_trade_event(event)
+            self._emitted_events += 1
+
+        if self._seen_messages % 200 == 0:
+            self._log.info(
+                "ws_source_stats seen_messages=%s trade_rows=%s wallet_matches=%s emitted=%s",
+                self._seen_messages,
+                self._seen_trade_rows,
+                self._wallet_matched_rows,
+                self._emitted_events,
+            )
+        if rows and matched_in_message == 0 and self._seen_messages % 500 == 0:
+            sample = rows[0]
+            self._log.info(
+                "ws_trade_no_wallet_match sample_keys=%s",
+                sorted(sample.keys())[:25],
+            )
 
     @staticmethod
     def _market_ws_url(raw_url: str) -> str:
@@ -68,12 +94,30 @@ def _extract_trade_rows(message: dict[str, Any]) -> list[dict[str, Any]]:
     data = message.get("data")
     if isinstance(data, dict) and _looks_like_trade(data):
         out.append(data)
+    elif isinstance(data, dict):
+        nested_trade = data.get("trade")
+        if isinstance(nested_trade, dict) and _looks_like_trade(nested_trade):
+            out.append(nested_trade)
     elif isinstance(data, list):
         out.extend(item for item in data if isinstance(item, dict) and _looks_like_trade(item))
 
     events = message.get("events")
     if isinstance(events, list):
-        out.extend(item for item in events if isinstance(item, dict) and _looks_like_trade(item))
+        for item in events:
+            if not isinstance(item, dict):
+                continue
+            if _looks_like_trade(item):
+                out.append(item)
+            nested_trade = item.get("trade")
+            if isinstance(nested_trade, dict) and _looks_like_trade(nested_trade):
+                out.append(nested_trade)
+            nested_event = item.get("event")
+            if isinstance(nested_event, dict) and _looks_like_trade(nested_event):
+                out.append(nested_event)
+
+    trade = message.get("trade")
+    if isinstance(trade, dict) and _looks_like_trade(trade):
+        out.append(trade)
     return out
 
 
@@ -93,6 +137,11 @@ def _wallet_matches(payload: dict[str, Any], wallet_lower: str) -> bool:
         "user",
         "trader",
         "address",
+        "wallet",
+        "wallet_address",
+        "user_address",
+        "owner_address",
+        "proxy_wallet",
         "maker",
         "taker",
         "maker_address",
@@ -101,6 +150,18 @@ def _wallet_matches(payload: dict[str, Any], wallet_lower: str) -> bool:
         value = payload.get(key)
         if isinstance(value, str) and value.lower() == wallet_lower:
             return True
+
+    # Some payloads nest wallet addresses under maker/taker orders.
+    for container_key in ("maker_orders", "taker_orders", "orders"):
+        container = payload.get(container_key)
+        if isinstance(container, list):
+            for item in container:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("owner", "maker_address", "taker_address", "address", "user"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.lower() == wallet_lower:
+                        return True
     return False
 
 
