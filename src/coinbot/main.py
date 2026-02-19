@@ -27,7 +27,6 @@ from coinbot.telemetry.redaction import redact_secret
 from coinbot.telemetry.copy_audit import CopyAuditLogger
 from coinbot.telemetry.shadow import ShadowDecisionLogger
 from coinbot.watcher.source_activity import ActivityPollerConfig, SourceWalletActivityPoller
-from coinbot.watcher.source_ws import SourceWalletWsWatcher
 from coinbot.state_store.checkpoints import SqliteCheckpointStore
 from coinbot.state_store.dedupe import SqliteDedupeStore
 
@@ -105,14 +104,19 @@ def main() -> None:
     poller_thread = Thread(target=poller.run_forever, name="source-poller", daemon=True)
     poller_thread.start()
     if cfg.copy.source_ws_enabled:
-        ws_watcher = SourceWalletWsWatcher(
-            ws_url=cfg.polymarket.ws_url,
-            source_wallet=cfg.copy.source_wallet,
-            on_trade_event=_enqueue,
-        )
-        ws_thread = Thread(target=ws_watcher.run_forever, name="source-ws", daemon=True)
-        ws_thread.start()
-        log.info("source_ws_enabled url=%s", cfg.polymarket.ws_url)
+        try:
+            from coinbot.watcher.source_ws import SourceWalletWsWatcher
+
+            ws_watcher = SourceWalletWsWatcher(
+                ws_url=cfg.polymarket.ws_url,
+                source_wallet=cfg.copy.source_wallet,
+                on_trade_event=_enqueue,
+            )
+            ws_thread = Thread(target=ws_watcher.run_forever, name="source-ws", daemon=True)
+            ws_thread.start()
+            log.info("source_ws_enabled url=%s", cfg.polymarket.ws_url)
+        except ModuleNotFoundError as exc:
+            log.warning("source_ws_disabled_missing_dep error=%s", exc)
 
     def _handle_signal(signum: int, _frame: object) -> None:
         log.info("shutdown_signal signum=%s", signum)
