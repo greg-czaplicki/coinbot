@@ -33,9 +33,9 @@ class SourceWalletWsWatcher:
 
     async def _run(self) -> None:
         ws_url = self._market_ws_url(self._ws_url)
-        # Use base WS endpoint with explicit subscribe channel payload.
+        # Use market endpoint payload.
         subscribe_messages = [
-            {"type": "subscribe", "channel": "market"},
+            {"type": "market"},
         ]
         client = ReconnectingWsClient(
             url=ws_url,
@@ -83,15 +83,13 @@ class SourceWalletWsWatcher:
 
     @staticmethod
     def _market_ws_url(raw_url: str) -> str:
-        # Normalize to base .../ws endpoint (no trailing slash), not .../ws/market.
-        url = raw_url.strip()
-        if url.endswith("/ws/"):
-            return url[:-1]
+        # Normalize to .../ws/market.
+        url = raw_url.rstrip("/")
         if url.endswith("/market"):
-            return url[: -len("/market")]
-        if url.endswith("/ws"):
             return url
-        return url.rstrip("/")
+        if url.endswith("/ws"):
+            return f"{url}/market"
+        return f"{url}/market"
 
 
 def _extract_trade_rows(message: dict[str, Any]) -> list[dict[str, Any]]:
