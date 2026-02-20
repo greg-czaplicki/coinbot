@@ -20,6 +20,7 @@ class CopyConfig:
     source_ws_enabled: bool = False
     source_activity_poll_interval_ms: int = 700
     source_activity_http_timeout_ms: int = 4000
+    max_source_staleness_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,12 @@ def load_config() -> AppConfig:
                 os.getenv(
                     "COPY_SOURCE_ACTIVITY_HTTP_TIMEOUT_MS",
                     CopyConfig.source_activity_http_timeout_ms,
+                )
+            ),
+            max_source_staleness_ms=int(
+                os.getenv(
+                    "COPY_MAX_SOURCE_STALENESS_MS",
+                    CopyConfig.max_source_staleness_ms,
                 )
             ),
         ),
@@ -236,6 +243,8 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("COPY_SOURCE_ACTIVITY_POLL_INTERVAL_MS must be > 0")
     if cfg.copy.source_activity_http_timeout_ms <= 0:
         raise ValueError("COPY_SOURCE_ACTIVITY_HTTP_TIMEOUT_MS must be > 0")
+    if cfg.copy.max_source_staleness_ms < 0:
+        raise ValueError("COPY_MAX_SOURCE_STALENESS_MS must be >= 0")
     if cfg.sizing.mode not in {"fixed", "proportional", "capped_proportional"}:
         raise ValueError("SIZING_MODE must be fixed|proportional|capped_proportional")
     if cfg.sizing.fixed_order_notional_usd <= 0:

@@ -15,11 +15,20 @@ class DecisionResult:
 
 
 class IntentPolicy:
-    def __init__(self, sizing: SizingConfig, execution: ExecutionConfig) -> None:
+    def __init__(
+        self,
+        sizing: SizingConfig,
+        execution: ExecutionConfig,
+        max_source_staleness_ms: int = 0,
+    ) -> None:
         self._sizing = sizing
         self._execution = execution
+        self._max_source_staleness_ms = max_source_staleness_ms
 
     def apply(self, intent: ExecutionIntent, source_events: list[TradeEvent]) -> DecisionResult:
+        if self._source_stale(source_events):
+            return DecisionResult(None, "source_stale")
+
         if self._near_expiry(source_events):
             return DecisionResult(None, "near_expiry_cutoff")
 
@@ -60,6 +69,13 @@ class IntentPolicy:
             return False
         remaining = (event.window.end_ts - datetime.now(event.window.end_ts.tzinfo)).total_seconds()
         return remaining <= self._execution.near_expiry_cutoff_seconds
+
+    def _source_stale(self, source_events: list[TradeEvent]) -> bool:
+        if self._max_source_staleness_ms <= 0 or not source_events:
+            return False
+        event = source_events[-1]
+        age_ms = (datetime.now(event.executed_ts.tzinfo) - event.executed_ts).total_seconds() * 1000
+        return age_ms > self._max_source_staleness_ms
 
 
 class WindowRiskTracker:

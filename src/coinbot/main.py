@@ -49,7 +49,11 @@ def main() -> None:
     dry_run = DryRunExecutor()
     market_cache = MarketMetadataCache(cfg.polymarket)
     order_client = ClobOrderClient(cfg.polymarket, cfg.execution, market_cache=market_cache)
-    policy = IntentPolicy(cfg.sizing, cfg.execution)
+    policy = IntentPolicy(
+        cfg.sizing,
+        cfg.execution,
+        max_source_staleness_ms=cfg.copy.max_source_staleness_ms,
+    )
     risk_tracker = WindowRiskTracker(cfg.sizing)
     pnl = PnLTracker(fee_bps=Decimal(str(cfg.execution.fee_bps)))
     kill_switch = KillSwitch()
