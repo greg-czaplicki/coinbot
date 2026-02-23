@@ -11,7 +11,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from coinbot.schemas import Side, TradeEvent
-from coinbot.watcher.ws_client import ReconnectingWsClient
 
 
 class SourceWalletWsWatcher:
@@ -39,6 +38,8 @@ class SourceWalletWsWatcher:
         asyncio.run(self._run())
 
     async def _run(self) -> None:
+        from coinbot.watcher.ws_client import ReconnectingWsClient
+
         ws_url = self._market_ws_url(self._ws_url)
         client = ReconnectingWsClient(
             url=ws_url,
@@ -157,121 +158,121 @@ class SourceWalletWsWatcher:
 
 def _extract_trade_rows(message: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    if _looks_like_trade(message):
-        out.append(message)
-
-    data = message.get("data")
-    if isinstance(data, dict) and _looks_like_trade(data):
-        out.append(data)
-    elif isinstance(data, dict):
-        nested_trade = data.get("trade")
-        if isinstance(nested_trade, dict) and _looks_like_trade(nested_trade):
-            out.append(nested_trade)
-    elif isinstance(data, list):
-        out.extend(item for item in data if isinstance(item, dict) and _looks_like_trade(item))
-
-    events = message.get("events")
-    if isinstance(events, list):
-        for item in events:
-            if not isinstance(item, dict):
-                continue
-            if _looks_like_trade(item):
-                out.append(item)
-            nested_trade = item.get("trade")
-            if isinstance(nested_trade, dict) and _looks_like_trade(nested_trade):
-                out.append(nested_trade)
-            nested_event = item.get("event")
-            if isinstance(nested_event, dict) and _looks_like_trade(nested_event):
-                out.append(nested_event)
-
-    trade = message.get("trade")
-    if isinstance(trade, dict) and _looks_like_trade(trade):
-        out.append(trade)
+    seen: set[str] = set()
+    for node in _iter_nodes(message):
+        if not isinstance(node, dict):
+            continue
+        if not _looks_like_trade(node):
+            continue
+        sig = _row_signature(node)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(node)
     return out
 
 
 def _looks_like_trade(payload: dict[str, Any]) -> bool:
+    event_type = str(payload.get("event_type") or payload.get("type") or "").lower()
     keys = {k.lower() for k in payload.keys()}
+    if event_type in {"trade", "fill", "last_trade_price"} and (
+        {"price", "size"} & keys
+        or {"usdcsize", "notional"} & keys
+        or {"trade", "trade_id", "transaction_hash", "tx_hash"} & keys
+    ):
+        return True
     return bool(
         {"price", "size"} & keys
         or {"usdcsize", "notional"} & keys
-        or "trade_id" in keys
-        or payload.get("event_type") in {"trade", "fill"}
+        or {"trade_id", "transaction_hash", "tx_hash"} & keys
+        or (
+            "price" in keys
+            and (
+                {"maker", "taker", "owner", "user", "wallet"} & keys
+                or {"maker_orders", "taker_orders", "orders"} & keys
+            )
+        )
     )
 
 
 def _wallet_matches(payload: dict[str, Any], wallet_lower: str) -> bool:
-    for key in (
-        "owner",
-        "user",
-        "trader",
-        "address",
-        "wallet",
-        "wallet_address",
-        "user_address",
-        "owner_address",
-        "proxy_wallet",
-        "maker",
-        "taker",
-        "maker_address",
-        "taker_address",
-    ):
-        value = payload.get(key)
-        if isinstance(value, str) and value.lower() == wallet_lower:
-            return True
-
-    # Some payloads nest wallet addresses under maker/taker orders.
-    for container_key in ("maker_orders", "taker_orders", "orders"):
-        container = payload.get(container_key)
-        if isinstance(container, list):
-            for item in container:
-                if not isinstance(item, dict):
-                    continue
-                for key in ("owner", "maker_address", "taker_address", "address", "user"):
-                    value = item.get(key)
-                    if isinstance(value, str) and value.lower() == wallet_lower:
-                        return True
+    for node in _iter_nodes(payload):
+        if not isinstance(node, dict):
+            continue
+        for key in (
+            "owner",
+            "user",
+            "trader",
+            "address",
+            "wallet",
+            "wallet_address",
+            "user_address",
+            "owner_address",
+            "proxy_wallet",
+            "maker",
+            "taker",
+            "maker_address",
+            "taker_address",
+            "maker_proxy_wallet",
+            "taker_proxy_wallet",
+        ):
+            value = node.get(key)
+            if isinstance(value, str) and value.lower() == wallet_lower:
+                return True
     return False
 
 
 def _normalize_trade(raw: dict[str, Any], source_wallet: str) -> TradeEvent | None:
-    market_id = str(
-        raw.get("market")
-        or raw.get("market_id")
-        or raw.get("condition_id")
-        or raw.get("asset_id")
-        or raw.get("token_id")
-        or ""
-    )
+    market_id = str(_pick(raw, "market", "market_id", "condition_id", "asset_id", "token_id") or "")
     if not market_id:
         return None
 
-    event_id = str(raw.get("id") or raw.get("trade_id") or "")
+    event_id = str(_pick(raw, "id", "trade_id", "event_id", "match_id", "order_id") or "")
     if not event_id:
-        tx_hash = str(raw.get("transaction_hash") or raw.get("transactionHash") or "")
-        ts = str(raw.get("timestamp") or "")
-        size = str(raw.get("size") or raw.get("shares") or raw.get("usdcSize") or "")
+        tx_hash = str(_pick(raw, "transaction_hash", "transactionHash", "tx_hash", "txHash") or "")
+        ts = str(_pick(raw, "timestamp", "time", "created_at", "createdAt") or "")
+        size = str(_pick(raw, "size", "shares", "usdcSize", "amount", "matched_size") or "")
         event_id = f"{tx_hash}:{market_id}:{ts}:{size}"
     if not event_id:
         return None
 
-    price = _to_decimal(raw.get("price")) or Decimal("0")
-    shares = _to_decimal(raw.get("size") or raw.get("shares")) or Decimal("0")
-    notional = _to_decimal(raw.get("usdcSize") or raw.get("notional") or raw.get("amount"))
+    price = _to_decimal(_pick(raw, "price", "trade_price", "last_price")) or Decimal("0")
+    shares = _to_decimal(
+        _pick(
+            raw,
+            "size",
+            "shares",
+            "matched_size",
+            "base_amount",
+            "maker_base_asset_amount",
+            "taker_base_asset_amount",
+        )
+    ) or Decimal("0")
+    notional = _to_decimal(
+        _pick(
+            raw,
+            "usdcSize",
+            "notional",
+            "amount",
+            "quote_amount",
+            "maker_quote_asset_amount",
+            "taker_quote_asset_amount",
+        )
+    )
     if notional is None:
         notional = shares * price
 
-    side_raw = str(raw.get("side") or raw.get("direction") or "BUY").upper()
+    side_raw = str(_pick(raw, "side", "direction", "taker_side", "maker_side") or "BUY").upper()
     side = Side.BUY if side_raw in {"BUY", "BID"} else Side.SELL
 
-    executed_ts = _parse_ts(raw.get("timestamp"))
+    executed_ts = _parse_ts(_pick(raw, "timestamp", "time", "created_at", "createdAt"))
     now_utc = datetime.now(timezone.utc)
     return TradeEvent(
         event_id=event_id,
         source_wallet=source_wallet,
         market_id=market_id,
-        market_slug=str(raw.get("market_slug") or raw.get("slug") or ""),
-        outcome=str(raw.get("outcome") or ""),
+        market_slug=str(_pick(raw, "market_slug", "slug") or ""),
+        outcome=str(_pick(raw, "outcome", "token_outcome", "side_outcome") or ""),
         side=side,
         price=price,
         shares=shares,
@@ -303,3 +304,85 @@ def _to_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError):
         return None
+
+
+def _try_parse_json(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or text[0] not in "{[":
+        return value
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return value
+
+
+def _iter_nodes(root: Any) -> list[Any]:
+    out: list[Any] = []
+    stack: list[Any] = [_try_parse_json(root)]
+    while stack:
+        current = stack.pop()
+        out.append(current)
+        if isinstance(current, dict):
+            for key, value in current.items():
+                if key in {"event_message", "message", "payload", "data", "event", "trade", "events", "changes"}:
+                    stack.append(_try_parse_json(value))
+                elif isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(current, list):
+            for item in current:
+                stack.append(_try_parse_json(item))
+    return out
+
+
+def _pick(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload and payload.get(key) not in (None, ""):
+            return payload.get(key)
+    for node in _iter_nodes(payload):
+        if not isinstance(node, dict):
+            continue
+        for key in keys:
+            if key in node and node.get(key) not in (None, ""):
+                return node.get(key)
+    return None
+
+
+def _row_signature(payload: dict[str, Any]) -> str:
+    event_id = str(
+        payload.get("id")
+        or payload.get("trade_id")
+        or payload.get("event_id")
+        or payload.get("match_id")
+        or ""
+    )
+    if event_id:
+        return f"id:{event_id}"
+    market = str(
+        payload.get("market")
+        or payload.get("market_id")
+        or payload.get("condition_id")
+        or payload.get("asset_id")
+        or payload.get("token_id")
+        or ""
+    )
+    timestamp = str(
+        payload.get("timestamp")
+        or payload.get("time")
+        or payload.get("created_at")
+        or payload.get("createdAt")
+        or ""
+    )
+    size = str(
+        payload.get("size")
+        or payload.get("shares")
+        or payload.get("usdcSize")
+        or payload.get("amount")
+        or payload.get("matched_size")
+        or ""
+    )
+    price = str(payload.get("price") or payload.get("trade_price") or payload.get("last_price") or "")
+    return f"row:{market}:{timestamp}:{size}:{price}"
