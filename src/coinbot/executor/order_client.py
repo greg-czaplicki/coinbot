@@ -238,7 +238,7 @@ class ClobOrderClient:
         return client
 
     def _post_with_refresh(self, client: object, order_args: object, OrderType: object):
-        order_type = getattr(OrderType, "GTC", None) or getattr(OrderType, "FOK")
+        order_type = _resolve_marketable_limit_order_type(OrderType)
         signed = client.create_order(order_args)
         try:
             return client.post_order(signed, order_type)
@@ -308,6 +308,15 @@ def _classify_error_code(error: str) -> str:
     if "size" in normalized and "lower than the minimum" in normalized:
         return "min_size"
     return ""
+
+
+def _resolve_marketable_limit_order_type(order_type_cls: object):
+    # Marketable limit orders should prefer immediate execution semantics.
+    for name in ("FOK", "IOC", "GTC"):
+        value = getattr(order_type_cls, name, None)
+        if value is not None:
+            return value
+    raise ValueError("OrderType missing FOK/IOC/GTC attributes")
 
 
 def deterministic_client_order_id(intent: ExecutionIntent) -> str:

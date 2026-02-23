@@ -74,6 +74,7 @@ def main() -> None:
     queue: Queue[TradeEvent] = Queue(maxsize=5000)
     buckets: dict[str, CoalesceBucket] = {}
     event_receive_ms_by_id: dict[str, int] = {}
+    cross_source_seen: dict[str, tuple[int, str]] = {}
     stop_event = Event()
 
     log.info(
@@ -90,6 +91,32 @@ def main() -> None:
     )
 
     def _enqueue(event: TradeEvent) -> None:
+        now_ms = int(time.time() * 1000)
+        key = _cross_source_event_key(event)
+        existing = cross_source_seen.get(key)
+        if existing is not None:
+            seen_ms, seen_path = existing
+            # If both ingestion paths are enabled, avoid processing duplicate
+            # fills observed from both activity API and websocket streams.
+            if event.source_path != seen_path and (now_ms - seen_ms) <= 120_000:
+                log.info(
+                    "cross_source_duplicate_drop key=%s source=%s prior_source=%s age_ms=%s",
+                    key[:16],
+                    event.source_path,
+                    seen_path,
+                    now_ms - seen_ms,
+                )
+                return
+        cross_source_seen[key] = (now_ms, event.source_path)
+        if len(cross_source_seen) > 20_000:
+            cutoff_ms = now_ms - 300_000
+            cross_source_seen_keys = [
+                dedupe_key
+                for dedupe_key, (seen_ms, _seen_path) in cross_source_seen.items()
+                if seen_ms < cutoff_ms
+            ]
+            for dedupe_key in cross_source_seen_keys:
+                cross_source_seen.pop(dedupe_key, None)
         market_cache.warm([event.market_slug, event.market_id])
         try:
             queue.put(event, timeout=1)
@@ -121,6 +148,7 @@ def main() -> None:
                 data_api_url=cfg.polymarket.data_api_url,
                 source_wallet=cfg.copy.source_wallet,
                 on_trade_event=_enqueue,
+                source_ws_reseed_sec=cfg.copy.source_ws_reseed_sec,
             )
             ws_thread = Thread(target=ws_watcher.run_forever, name="source-ws", daemon=True)
             ws_thread.start()
@@ -485,6 +513,21 @@ def _coalesce_key(event: TradeEvent, *, net_opposite: bool) -> str:
     if net_opposite:
         return f"{event.market_id}:{window_id}:{event.outcome}"
     return f"{event.market_id}:{window_id}:{event.outcome}:{event.side.value}"
+
+
+def _cross_source_event_key(event: TradeEvent) -> str:
+    ts_ms = int(event.executed_ts.timestamp() * 1000)
+    return "|".join(
+        [
+            event.market_id,
+            event.outcome.strip().lower(),
+            event.side.value,
+            str(event.price.normalize()),
+            str(event.shares.normalize()),
+            str(event.notional_usd.normalize()),
+            str(ts_ms),
+        ]
+    )
 
 
 def _coalesced_intent(

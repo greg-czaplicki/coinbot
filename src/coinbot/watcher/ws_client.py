@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -10,6 +11,7 @@ import websockets
 from websockets.client import WebSocketClientProtocol
 
 MessageHandler = Callable[[dict[str, Any]], Awaitable[None]]
+SubscribeFactory = Callable[[], list[dict]]
 
 
 class ReconnectingWsClient:
@@ -19,16 +21,20 @@ class ReconnectingWsClient:
         subscribe_messages: list[dict],
         on_message: MessageHandler,
         *,
+        subscribe_messages_factory: SubscribeFactory | None = None,
         ping_interval_s: int = 20,
         ping_timeout_s: int = 20,
         max_backoff_s: int = 30,
+        session_ttl_s: int | None = None,
     ) -> None:
         self._url = url
         self._subscribe_messages = subscribe_messages
+        self._subscribe_messages_factory = subscribe_messages_factory
         self._on_message = on_message
         self._ping_interval_s = ping_interval_s
         self._ping_timeout_s = ping_timeout_s
         self._max_backoff_s = max_backoff_s
+        self._session_ttl_s = session_ttl_s
         self._log = logging.getLogger(self.__class__.__name__)
         self._stop_event = asyncio.Event()
         self._recv_count = 0
@@ -58,7 +64,11 @@ class ReconnectingWsClient:
         ) as ws:
             await self._subscribe(ws)
             self._log.info("ws_connected url=%s", self._url)
+            started = time.monotonic()
             while not self._stop_event.is_set():
+                if self._session_ttl_s is not None and (time.monotonic() - started) >= self._session_ttl_s:
+                    self._log.info("ws_session_rollover url=%s ttl_s=%s", self._url, self._session_ttl_s)
+                    return
                 raw = await ws.recv()
                 self._recv_count += 1
                 if self._recv_count <= 5:
@@ -74,7 +84,10 @@ class ReconnectingWsClient:
                 await self._on_message(message)
 
     async def _subscribe(self, ws: WebSocketClientProtocol) -> None:
-        for payload in self._subscribe_messages:
+        payloads = self._subscribe_messages
+        if self._subscribe_messages_factory is not None:
+            payloads = self._subscribe_messages_factory()
+        for payload in payloads:
             await ws.send(json.dumps(payload))
             self._log.info("ws_subscribe payload=%s", payload)
 

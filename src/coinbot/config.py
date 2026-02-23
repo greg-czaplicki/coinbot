@@ -18,6 +18,7 @@ class CopyConfig:
     net_opposite_trades: bool = True
     source_activity_enabled: bool = True
     source_ws_enabled: bool = False
+    source_ws_reseed_sec: int = 60
     source_activity_poll_interval_ms: int = 700
     source_activity_http_timeout_ms: int = 4000
     max_source_staleness_ms: int = 0
@@ -96,6 +97,12 @@ def load_config() -> AppConfig:
             source_ws_enabled=_get_bool(
                 "COPY_SOURCE_WS_ENABLED",
                 CopyConfig.source_ws_enabled,
+            ),
+            source_ws_reseed_sec=int(
+                os.getenv(
+                    "COPY_SOURCE_WS_RESEED_SEC",
+                    CopyConfig.source_ws_reseed_sec,
+                )
             ),
             source_activity_poll_interval_ms=int(
                 os.getenv(
@@ -241,6 +248,8 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("COPY_COALESCE_MS must be > 0")
     if cfg.copy.source_activity_poll_interval_ms <= 0:
         raise ValueError("COPY_SOURCE_ACTIVITY_POLL_INTERVAL_MS must be > 0")
+    if cfg.copy.source_ws_reseed_sec <= 0:
+        raise ValueError("COPY_SOURCE_WS_RESEED_SEC must be > 0")
     if cfg.copy.source_activity_http_timeout_ms <= 0:
         raise ValueError("COPY_SOURCE_ACTIVITY_HTTP_TIMEOUT_MS must be > 0")
     if cfg.copy.max_source_staleness_ms < 0:

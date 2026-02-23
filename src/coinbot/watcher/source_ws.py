@@ -22,11 +22,13 @@ class SourceWalletWsWatcher:
         data_api_url: str,
         source_wallet: str,
         on_trade_event: Callable[[TradeEvent], None],
+        source_ws_reseed_sec: int = 60,
     ) -> None:
         self._ws_url = ws_url
         self._data_api_url = data_api_url
         self._source_wallet = source_wallet.lower()
         self._on_trade_event = on_trade_event
+        self._source_ws_reseed_sec = source_ws_reseed_sec
         self._log = logging.getLogger(self.__class__.__name__)
         self._seen_messages = 0
         self._seen_trade_rows = 0
@@ -38,22 +40,26 @@ class SourceWalletWsWatcher:
 
     async def _run(self) -> None:
         ws_url = self._market_ws_url(self._ws_url)
+        client = ReconnectingWsClient(
+            url=ws_url,
+            subscribe_messages=[],
+            subscribe_messages_factory=self._build_subscribe_messages,
+            on_message=self._on_message,
+            session_ttl_s=self._source_ws_reseed_sec,
+        )
+        await client.run_forever()
+
+    def _build_subscribe_messages(self) -> list[dict]:
         asset_ids = self._discover_asset_ids()
         self._log.info(
             "ws_seed_assets count=%s sample=%s",
             len(asset_ids),
             asset_ids[:5],
         )
+        if not asset_ids:
+            return []
         # Polymarket market channel requires assets_ids.
-        subscribe_messages = [
-            {"type": "market", "assets_ids": asset_ids, "custom_feature_enabled": True},
-        ]
-        client = ReconnectingWsClient(
-            url=ws_url,
-            subscribe_messages=subscribe_messages,
-            on_message=self._on_message,
-        )
-        await client.run_forever()
+        return [{"type": "market", "assets_ids": asset_ids, "custom_feature_enabled": True}]
 
     async def _on_message(self, message: dict[str, Any]) -> None:
         self._seen_messages += 1
