@@ -19,6 +19,9 @@ class OrderClientTests(unittest.TestCase):
     def test_classify_unknown_reject(self) -> None:
         self.assertEqual(_classify_error_code("HTTP Error 400: Bad Request"), "")
 
+    def test_classify_token_id_missing_reject(self) -> None:
+        self.assertEqual(_classify_error_code("token_id_missing"), "token_id_missing")
+
     def test_marketable_limit_prefers_fok(self) -> None:
         class _OrderType:
             FOK = "fok"

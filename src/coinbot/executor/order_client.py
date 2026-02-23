@@ -125,6 +125,15 @@ class ClobOrderClient:
             )
             if live is not None:
                 return live
+            return OrderSubmission(
+                client_order_id=client_order_id,
+                endpoint=endpoint,
+                payload=payload,
+                accepted=False,
+                status="rejected",
+                error="token_id_missing",
+                error_code="token_id_missing",
+            )
 
         return self._post_with_retry(endpoint=endpoint, payload=payload, client_order_id=client_order_id)
 
@@ -171,6 +180,31 @@ class ClobOrderClient:
                 response=response if isinstance(response, dict) else {"response": str(response)},
             )
         except Exception as exc:
+            # Retry once with coarser precision for markets that enforce strict amount scales.
+            msg = str(exc).lower()
+            if "invalid amounts" in msg:
+                try:
+                    px2 = price.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                    sz2 = size.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                    payload["price"] = str(px2)
+                    payload["size"] = str(sz2)
+                    order_args2 = OrderArgs(
+                        token_id=token_id,
+                        price=float(px2),
+                        size=float(sz2),
+                        side=intent.side.value.upper(),
+                    )
+                    response = self._post_with_refresh(client, order_args2, OrderType)
+                    return OrderSubmission(
+                        client_order_id=client_order_id,
+                        endpoint=endpoint,
+                        payload=payload,
+                        accepted=True,
+                        status="acknowledged",
+                        response=response if isinstance(response, dict) else {"response": str(response)},
+                    )
+                except Exception as retry_exc:
+                    exc = retry_exc
             error = str(exc)
             self._log.warning("py_clob_submit_error client_order_id=%s error=%s", client_order_id, exc)
             return OrderSubmission(
@@ -321,6 +355,8 @@ def _sanitize_buy_amounts(*, price: Decimal, size: Decimal) -> tuple[Decimal, De
 
 def _classify_error_code(error: str) -> str:
     normalized = error.lower()
+    if "token_id_missing" in normalized:
+        return "token_id_missing"
     if "size" in normalized and "lower than the minimum" in normalized:
         return "min_size"
     return ""
