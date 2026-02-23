@@ -32,3 +32,4 @@ Polymarket copy-trading bot focused on low-latency intent-level replication.
 - Worker polls Data API wallet positions and redeems resolved conditions every `REDEEM_INTERVAL_SECONDS`.
 - Redeem transactions only run when signer key matches `REDEEM_WALLET_ADDRESS` (or `POLYMARKET_FUNDER` fallback).
 - If your trading wallet is a proxy/safe address different from your signer EOA, this worker will intentionally skip to avoid failing transactions.
+- Safe/proxy mode is supported for single-owner threshold-1 Safes when signer is an owner; higher thresholds are intentionally rejected.
