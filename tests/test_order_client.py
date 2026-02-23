@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from coinbot.executor.order_client import _classify_error_code, _resolve_marketable_limit_order_type
+from decimal import Decimal
+
+from coinbot.executor.order_client import (
+    _classify_error_code,
+    _resolve_marketable_limit_order_type,
+    _sanitize_buy_amounts,
+)
 
 
 class OrderClientTests(unittest.TestCase):
@@ -29,6 +35,13 @@ class OrderClientTests(unittest.TestCase):
 
         self.assertEqual(_resolve_marketable_limit_order_type(_IOCOnly), "ioc")
         self.assertEqual(_resolve_marketable_limit_order_type(_GTCOnly), "gtc")
+
+    def test_sanitize_buy_amounts_enforces_notional_and_size_precision(self) -> None:
+        px, sz = _sanitize_buy_amounts(price=Decimal("0.537891"), size=Decimal("9.2958222"))
+        self.assertLessEqual(-px.as_tuple().exponent, 6)
+        self.assertLessEqual(-sz.as_tuple().exponent, 4)
+        notional = (px * sz).quantize(Decimal("0.01"))
+        self.assertLessEqual(-notional.as_tuple().exponent, 2)
 
 
 if __name__ == "__main__":

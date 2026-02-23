@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 
 from coinbot.config import ExecutionConfig, PolymarketConfig
 from coinbot.executor.market_cache import MarketMetadataCache
@@ -152,6 +152,9 @@ class ClobOrderClient:
             OrderType = getattr(clob_types, "OrderType")
 
             client = self._get_or_create_clob_client(ClobClient, clob_types)
+            price, size = _sanitize_buy_amounts(price=price, size=size)
+            payload["price"] = str(price)
+            payload["size"] = str(size)
             order_args = OrderArgs(
                 token_id=token_id,
                 price=float(price),
@@ -301,6 +304,19 @@ class ClobOrderClient:
             status="rejected",
             error="unreachable",
         )
+
+
+def _sanitize_buy_amounts(*, price: Decimal, size: Decimal) -> tuple[Decimal, Decimal]:
+    # CLOB constraints for market BUY: maker quote amount <= 2 dp, taker size <= 4 dp.
+    if price <= 0:
+        return price, size
+    px = price.quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+    sz = size.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+    notional = (px * sz).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+    if notional <= 0:
+        return px, Decimal("0")
+    sz = (notional / px).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+    return px, sz
 
 
 def _classify_error_code(error: str) -> str:
