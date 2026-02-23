@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import json
+import re
+import time
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -33,6 +35,7 @@ class SourceWalletWsWatcher:
         self._seen_trade_rows = 0
         self._wallet_matched_rows = 0
         self._emitted_events = 0
+        self._family_last_slug: dict[str, str] = {}
 
     def run_forever(self) -> None:
         asyncio.run(self._run())
@@ -116,6 +119,7 @@ class SourceWalletWsWatcher:
             "Connection": "keep-alive",
         }
         seen: set[str] = set()
+        seed_slugs: list[str] = []
         for url in urls:
             try:
                 req = urllib.request.Request(url, headers=headers, method="GET")
@@ -136,14 +140,92 @@ class SourceWalletWsWatcher:
                     token = str(raw).strip()
                     if token:
                         seen.add(token)
+                    slug = str(row.get("slug") or "").strip()
+                    if slug:
+                        seed_slugs.append(slug)
                 if seen:
                     break
             except Exception as exc:
                 self._log.warning("ws_seed_fetch_error url=%s error=%s", url, exc)
                 continue
+        seen.update(self._discover_active_family_asset_ids(seed_slugs))
         if not seen:
             self._log.warning("ws_seed_assets_empty")
         return sorted(seen)
+
+    def _discover_active_family_asset_ids(self, seed_slugs: list[str]) -> set[str]:
+        families = _extract_updown_families(seed_slugs)
+        if not families:
+            return set()
+        out: set[str] = set()
+        for family in sorted(families):
+            interval_sec = _family_interval_seconds(family) or 300
+            market = self._resolve_active_market_for_family(family=family, interval_sec=interval_sec)
+            if market is None:
+                continue
+            slug = str(market.get("slug") or "")
+            if slug:
+                self._family_last_slug[family] = slug
+            for token in _extract_market_token_ids(market):
+                out.add(token)
+        if out:
+            self._log.info("ws_derived_assets count=%s families=%s", len(out), sorted(families))
+        return out
+
+    def _resolve_active_market_for_family(self, *, family: str, interval_sec: int) -> dict[str, Any] | None:
+        now_ts = int(time.time())
+        now_bucket = now_ts - (now_ts % interval_sec)
+        candidates = []
+        last_slug = self._family_last_slug.get(family)
+        if last_slug:
+            candidates.append(last_slug)
+            last_ts = _slug_timestamp(last_slug)
+            if last_ts is not None:
+                candidates.extend(
+                    [
+                        f"{family}-{last_ts + interval_sec}",
+                        f"{family}-{last_ts + (2 * interval_sec)}",
+                        f"{family}-{last_ts - interval_sec}",
+                    ]
+                )
+        candidates.extend(
+            [
+                f"{family}-{now_bucket + interval_sec}",
+                f"{family}-{now_bucket}",
+                f"{family}-{now_bucket - interval_sec}",
+                f"{family}-{now_bucket - (2 * interval_sec)}",
+            ]
+        )
+        seen: set[str] = set()
+        ordered = []
+        for slug in candidates:
+            if slug in seen:
+                continue
+            seen.add(slug)
+            ordered.append(slug)
+        for slug in ordered:
+            market = self._fetch_gamma_market_by_slug(slug)
+            if market is None:
+                continue
+            if not bool(market.get("active", True)) or bool(market.get("closed", False)):
+                continue
+            return market
+        return None
+
+    def _fetch_gamma_market_by_slug(self, slug: str) -> dict[str, Any] | None:
+        for base in ("https://gamma-api.polymarket.com", self._data_api_url):
+            url = f"{base.rstrip('/')}/markets?{urllib.parse.urlencode({'slug': slug})}"
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "coinbot/0.1"}, method="GET")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                if isinstance(payload, list):
+                    for item in payload:
+                        if isinstance(item, dict) and str(item.get("slug") or "") == slug:
+                            return item
+            except Exception:
+                continue
+        return None
 
     @staticmethod
     def _market_ws_url(raw_url: str) -> str:
@@ -170,6 +252,70 @@ def _extract_trade_rows(message: dict[str, Any]) -> list[dict[str, Any]]:
         seen.add(sig)
         out.append(node)
     return out
+
+
+_UPDOWN_FAMILY_RE = re.compile(r"^([a-z0-9]+-updown-(?:5m|15m))-\d{9,12}$")
+
+
+def _extract_updown_families(slugs: list[str]) -> set[str]:
+    out: set[str] = set()
+    for slug in slugs:
+        m = _UPDOWN_FAMILY_RE.match(slug.lower())
+        if m:
+            out.add(m.group(1))
+    return out
+
+
+def _family_interval_seconds(family: str) -> int | None:
+    m = re.search(r"-(\d+)m$", family)
+    if not m:
+        return None
+    try:
+        minutes = int(m.group(1))
+    except ValueError:
+        return None
+    if minutes <= 0:
+        return None
+    return minutes * 60
+
+
+def _slug_timestamp(slug: str) -> int | None:
+    m = re.match(r".+-(\d{9,12})$", slug)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _extract_market_token_ids(market: dict[str, Any]) -> set[str]:
+    raw_ids = market.get("clobTokenIds")
+    ids = _parse_json_string_list(raw_ids)
+    out = {str(x).strip() for x in ids if str(x).strip()}
+    if out:
+        return out
+    tokens = market.get("tokens")
+    if isinstance(tokens, list):
+        for token in tokens:
+            if not isinstance(token, dict):
+                continue
+            token_id = str(token.get("token_id") or token.get("tokenId") or "").strip()
+            if token_id:
+                out.add(token_id)
+    return out
+
+
+def _parse_json_string_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return decoded if isinstance(decoded, list) else []
+    return []
 
 
 def _looks_like_trade(payload: dict[str, Any]) -> bool:

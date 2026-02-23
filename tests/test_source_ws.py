@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 import unittest
 
-from coinbot.watcher.source_ws import _extract_trade_rows, _normalize_trade, _wallet_matches
+from coinbot.watcher.source_ws import (
+    _extract_market_token_ids,
+    _extract_trade_rows,
+    _extract_updown_families,
+    _normalize_trade,
+    _wallet_matches,
+)
 
 
 class SourceWsParserTests(unittest.TestCase):
@@ -72,6 +78,21 @@ class SourceWsParserTests(unittest.TestCase):
         self.assertEqual("m2", event.market_id)
         self.assertEqual("btc-up-down", event.market_slug)
         self.assertEqual("Down", event.outcome)
+
+    def test_extract_updown_families(self) -> None:
+        slugs = [
+            "btc-updown-5m-1771808400",
+            "eth-updown-15m-1771808400",
+            "not-a-match",
+        ]
+        families = _extract_updown_families(slugs)
+        self.assertEqual({"btc-updown-5m", "eth-updown-15m"}, families)
+
+    def test_extract_market_token_ids_from_gamma_shape(self) -> None:
+        market = {
+            "clobTokenIds": "[\"111\",\"222\"]",
+        }
+        self.assertEqual({"111", "222"}, _extract_market_token_ids(market))
 
 
 if __name__ == "__main__":
