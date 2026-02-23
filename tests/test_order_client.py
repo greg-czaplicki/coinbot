@@ -7,6 +7,7 @@ from decimal import Decimal
 from coinbot.executor.order_client import (
     _classify_error_code,
     _resolve_marketable_limit_order_type,
+    _snap_price_to_tick,
     _sanitize_buy_amounts,
 )
 
@@ -22,13 +23,13 @@ class OrderClientTests(unittest.TestCase):
     def test_classify_token_id_missing_reject(self) -> None:
         self.assertEqual(_classify_error_code("token_id_missing"), "token_id_missing")
 
-    def test_marketable_limit_prefers_ioc(self) -> None:
+    def test_marketable_limit_prefers_gtc(self) -> None:
         class _OrderType:
+            GTC = "gtc"
             IOC = "ioc"
             FOK = "fok"
-            GTC = "gtc"
 
-        self.assertEqual(_resolve_marketable_limit_order_type(_OrderType), "ioc")
+        self.assertEqual(_resolve_marketable_limit_order_type(_OrderType), "gtc")
 
     def test_marketable_limit_falls_back_to_ioc_then_gtc(self) -> None:
         class _IOCOnly:
@@ -46,6 +47,9 @@ class OrderClientTests(unittest.TestCase):
         self.assertLessEqual(-sz.as_tuple().exponent, 4)
         notional = (px * sz).quantize(Decimal("0.01"))
         self.assertLessEqual(-notional.as_tuple().exponent, 2)
+
+    def test_snap_price_to_tick(self) -> None:
+        self.assertEqual(_snap_price_to_tick(price=Decimal("0.53789"), tick_size=Decimal("0.01")), Decimal("0.53"))
 
 
 if __name__ == "__main__":

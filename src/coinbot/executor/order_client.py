@@ -149,7 +149,7 @@ class ClobOrderClient:
         payload: dict,
     ) -> OrderSubmission | None:
         try:
-            token_id = self._resolve_token_id(intent=intent, market_slug=market_slug)
+            token_id, tick_size = self._resolve_order_target(intent=intent, market_slug=market_slug)
             if not token_id:
                 self._log.warning("token_id_missing market=%s outcome=%s", market_slug or intent.market_id, intent.outcome)
                 return None
@@ -161,6 +161,7 @@ class ClobOrderClient:
             OrderType = getattr(clob_types, "OrderType")
 
             client = self._get_or_create_clob_client(ClobClient, clob_types)
+            price = _snap_price_to_tick(price=price, tick_size=tick_size)
             price, size = _sanitize_buy_amounts(price=price, size=size)
             payload["price"] = str(price)
             payload["size"] = str(size)
@@ -217,9 +218,10 @@ class ClobOrderClient:
                 error_code=_classify_error_code(error),
             )
 
-    def _resolve_token_id(self, *, intent: ExecutionIntent, market_slug: str | None) -> str | None:
+    def _resolve_order_target(self, *, intent: ExecutionIntent, market_slug: str | None) -> tuple[str | None, Decimal]:
+        tick = Decimal("0.01")
         if self._market_cache is None:
-            return None
+            return None, tick
         keys = [market_slug, intent.market_id]
         for key in keys:
             if not key:
@@ -227,14 +229,18 @@ class ClobOrderClient:
             meta = self._market_cache.peek(key)
             if meta is None:
                 continue
+            try:
+                tick = Decimal(str(meta.tick_size))
+            except Exception:
+                tick = Decimal("0.01")
             token_id = meta.outcomes.get(intent.outcome)
             if token_id:
-                return token_id
+                return token_id, tick
         # Avoid blocking submit path on metadata fetches. Warm cache asynchronously.
         for key in keys:
             if key:
                 self._market_cache.request(key)
-        return None
+        return None, tick
 
     def _get_or_create_clob_client(self, ClobClient: object, clob_types: object):
         if self._clob_client is not None:
@@ -353,6 +359,16 @@ def _sanitize_buy_amounts(*, price: Decimal, size: Decimal) -> tuple[Decimal, De
     return px, sz
 
 
+def _snap_price_to_tick(*, price: Decimal, tick_size: Decimal) -> Decimal:
+    if tick_size <= 0:
+        return price
+    steps = (price / tick_size).to_integral_value(rounding=ROUND_DOWN)
+    snapped = steps * tick_size
+    if snapped <= 0:
+        return tick_size
+    return snapped
+
+
 def _invalid_amounts_retries(*, price: Decimal, size: Decimal) -> list[tuple[Decimal, Decimal]]:
     candidates = [
         (
@@ -392,7 +408,7 @@ def _classify_error_code(error: str) -> str:
 
 def _resolve_marketable_limit_order_type(order_type_cls: object):
     # Marketable limit orders should prefer immediate execution semantics.
-    for name in ("IOC", "FOK", "GTC"):
+    for name in ("GTC", "IOC", "FOK"):
         value = getattr(order_type_cls, name, None)
         if value is not None:
             return value
