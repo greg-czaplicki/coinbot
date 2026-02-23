@@ -21,3 +21,14 @@ Polymarket copy-trading bot focused on low-latency intent-level replication.
 ## Live Execution Note
 - Live order submission uses `py-clob-client` for signed CLOB orders.
 - After pulling updates, run `pip install -e .` to ensure dependencies are present.
+
+## Optional Websocket Modes
+- `COPY_SOURCE_WS_ENABLED=true` enables websocket ingestion.
+- `COPY_SOURCE_WS_MODE=market` uses the existing CLOB market stream.
+- `COPY_SOURCE_WS_MODE=activity` uses the simpler activity-trades websocket stream (`COPY_SOURCE_ACTIVITY_WS_URL`), matching the terminal-style watcher pattern.
+
+## Optional Auto Redeem
+- `REDEEM_ENABLED=true` starts a periodic on-chain redeem worker.
+- Worker polls Data API wallet positions and redeems resolved conditions every `REDEEM_INTERVAL_SECONDS`.
+- Redeem transactions only run when signer key matches `REDEEM_WALLET_ADDRESS` (or `POLYMARKET_FUNDER` fallback).
+- If your trading wallet is a proxy/safe address different from your signer EOA, this worker will intentionally skip to avoid failing transactions.

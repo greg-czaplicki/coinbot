@@ -17,6 +17,7 @@ from coinbot.decision_engine.policy import IntentPolicy, WindowRiskTracker
 from coinbot.executor.dry_run import DryRunExecutor
 from coinbot.executor.market_cache import MarketMetadataCache
 from coinbot.executor.order_client import ClobOrderClient
+from coinbot.executor.redeemer import AutoRedeemer, AutoRedeemerConfig
 from coinbot.schemas import ExecutionIntent, Side, TradeEvent
 from coinbot.telemetry.alerts import AlertEvaluator, AlertThresholds
 from coinbot.telemetry.exporter import TelemetryExporter
@@ -49,6 +50,19 @@ def main() -> None:
     dry_run = DryRunExecutor()
     market_cache = MarketMetadataCache(cfg.polymarket)
     order_client = ClobOrderClient(cfg.polymarket, cfg.execution, market_cache=market_cache)
+    redeemer = AutoRedeemer(
+        AutoRedeemerConfig(
+            enabled=cfg.redeem.enabled,
+            interval_seconds=cfg.redeem.interval_seconds,
+            data_api_url=cfg.polymarket.data_api_url,
+            gamma_api_url=cfg.polymarket.gamma_api_url,
+            rpc_url=os.getenv("POLYGON_RPC_URL", "https://polygon-bor-rpc.publicnode.com"),
+            private_key=cfg.polymarket.private_key,
+            wallet_address=cfg.redeem.wallet_address,
+            min_redeemable_shares=cfg.redeem.min_redeemable_shares,
+            dry_run=cfg.execution.dry_run,
+        )
+    )
     policy = IntentPolicy(
         cfg.sizing,
         cfg.execution,
@@ -141,20 +155,44 @@ def main() -> None:
         log.info("source_activity_disabled")
     if cfg.copy.source_ws_enabled:
         try:
-            from coinbot.watcher.source_ws import SourceWalletWsWatcher
+            if cfg.copy.source_ws_mode == "activity":
+                from coinbot.watcher.source_activity_ws import SourceWalletActivityWsWatcher
 
-            ws_watcher = SourceWalletWsWatcher(
-                ws_url=cfg.polymarket.ws_url,
-                data_api_url=cfg.polymarket.data_api_url,
-                source_wallet=cfg.copy.source_wallet,
-                on_trade_event=_enqueue,
-                source_ws_reseed_sec=cfg.copy.source_ws_reseed_sec,
-            )
+                ws_watcher = SourceWalletActivityWsWatcher(
+                    ws_url=cfg.copy.source_activity_ws_url,
+                    source_wallet=cfg.copy.source_wallet,
+                    on_trade_event=_enqueue,
+                    source_ws_reseed_sec=cfg.copy.source_ws_reseed_sec,
+                )
+            else:
+                from coinbot.watcher.source_ws import SourceWalletWsWatcher
+
+                ws_watcher = SourceWalletWsWatcher(
+                    ws_url=cfg.polymarket.ws_url,
+                    data_api_url=cfg.polymarket.data_api_url,
+                    source_wallet=cfg.copy.source_wallet,
+                    on_trade_event=_enqueue,
+                    source_ws_reseed_sec=cfg.copy.source_ws_reseed_sec,
+                )
             ws_thread = Thread(target=ws_watcher.run_forever, name="source-ws", daemon=True)
             ws_thread.start()
-            log.info("source_ws_enabled url=%s", cfg.polymarket.ws_url)
+            log.info("source_ws_enabled mode=%s", cfg.copy.source_ws_mode)
         except ModuleNotFoundError as exc:
             log.warning("source_ws_disabled_missing_dep error=%s", exc)
+
+    if cfg.redeem.enabled:
+        redeem_thread = Thread(
+            target=redeemer.run_forever,
+            args=(stop_event,),
+            name="auto-redeemer",
+            daemon=True,
+        )
+        redeem_thread.start()
+        log.info(
+            "auto_redeemer_enabled wallet=%s interval_s=%s",
+            cfg.redeem.wallet_address,
+            cfg.redeem.interval_seconds,
+        )
 
     def _handle_signal(signum: int, _frame: object) -> None:
         log.info("shutdown_signal signum=%s", signum)

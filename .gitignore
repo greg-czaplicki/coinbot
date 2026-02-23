@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
 .env
+.env.demo
+.env.live
 data/
 runs/
+docs/.env.dryrun.research

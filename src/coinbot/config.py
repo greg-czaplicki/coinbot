@@ -18,6 +18,8 @@ class CopyConfig:
     net_opposite_trades: bool = True
     source_activity_enabled: bool = True
     source_ws_enabled: bool = False
+    source_ws_mode: str = "market"
+    source_activity_ws_url: str = "wss://ws-live-data.polymarket.com"
     source_ws_reseed_sec: int = 60
     source_activity_poll_interval_ms: int = 700
     source_activity_http_timeout_ms: int = 4000
@@ -62,11 +64,20 @@ class PolymarketConfig:
 
 
 @dataclass(frozen=True)
+class RedeemConfig:
+    enabled: bool = False
+    interval_seconds: int = 60
+    wallet_address: str = ""
+    min_redeemable_shares: float = 0.001
+
+
+@dataclass(frozen=True)
 class AppConfig:
     copy: CopyConfig
     sizing: SizingConfig
     execution: ExecutionConfig
     polymarket: PolymarketConfig
+    redeem: RedeemConfig
 
 
 def _get_bool(key: str, default: bool) -> bool:
@@ -97,6 +108,11 @@ def load_config() -> AppConfig:
             source_ws_enabled=_get_bool(
                 "COPY_SOURCE_WS_ENABLED",
                 CopyConfig.source_ws_enabled,
+            ),
+            source_ws_mode=os.getenv("COPY_SOURCE_WS_MODE", CopyConfig.source_ws_mode),
+            source_activity_ws_url=os.getenv(
+                "COPY_SOURCE_ACTIVITY_WS_URL",
+                CopyConfig.source_activity_ws_url,
             ),
             source_ws_reseed_sec=int(
                 os.getenv(
@@ -206,6 +222,22 @@ def load_config() -> AppConfig:
             api_secret=os.getenv("POLYMARKET_API_SECRET", ""),
             api_passphrase=os.getenv("POLYMARKET_API_PASSPHRASE", ""),
         ),
+        redeem=RedeemConfig(
+            enabled=_get_bool("REDEEM_ENABLED", RedeemConfig.enabled),
+            interval_seconds=int(
+                os.getenv("REDEEM_INTERVAL_SECONDS", RedeemConfig.interval_seconds)
+            ),
+            wallet_address=os.getenv(
+                "REDEEM_WALLET_ADDRESS",
+                os.getenv("POLYMARKET_FUNDER", ""),
+            ),
+            min_redeemable_shares=float(
+                os.getenv(
+                    "REDEEM_MIN_REDEEMABLE_SHARES",
+                    RedeemConfig.min_redeemable_shares,
+                )
+            ),
+        ),
     )
     cfg = apply_safety_profile(cfg)
     validate_config(cfg)
@@ -250,6 +282,8 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("COPY_SOURCE_ACTIVITY_POLL_INTERVAL_MS must be > 0")
     if cfg.copy.source_ws_reseed_sec <= 0:
         raise ValueError("COPY_SOURCE_WS_RESEED_SEC must be > 0")
+    if cfg.copy.source_ws_mode not in {"market", "activity"}:
+        raise ValueError("COPY_SOURCE_WS_MODE must be one of: market, activity")
     if cfg.copy.source_activity_http_timeout_ms <= 0:
         raise ValueError("COPY_SOURCE_ACTIVITY_HTTP_TIMEOUT_MS must be > 0")
     if cfg.copy.max_source_staleness_ms < 0:
@@ -280,6 +314,15 @@ def validate_config(cfg: AppConfig) -> None:
         raise ValueError("EXECUTION_FEE_BPS must be >= 0")
     if cfg.execution.safety_profile not in {"standard", "conservative"}:
         raise ValueError("EXECUTION_SAFETY_PROFILE must be standard|conservative")
+    if cfg.redeem.interval_seconds <= 0:
+        raise ValueError("REDEEM_INTERVAL_SECONDS must be > 0")
+    if cfg.redeem.min_redeemable_shares <= 0:
+        raise ValueError("REDEEM_MIN_REDEEMABLE_SHARES must be > 0")
+    if cfg.redeem.wallet_address and (
+        not cfg.redeem.wallet_address.startswith("0x")
+        or len(cfg.redeem.wallet_address) != 42
+    ):
+        raise ValueError("REDEEM_WALLET_ADDRESS must be a 42-char 0x address")
     if not cfg.execution.dry_run:
         missing = []
         if not cfg.polymarket.private_key:
@@ -308,3 +351,5 @@ def validate_config(cfg: AppConfig) -> None:
         if missing:
             joined = ",".join(missing)
             raise ValueError(f"Missing required Polymarket credentials in live mode: {joined}")
+    if cfg.redeem.enabled and not cfg.redeem.wallet_address:
+        raise ValueError("REDEEM_ENABLED requires REDEEM_WALLET_ADDRESS or POLYMARKET_FUNDER")
