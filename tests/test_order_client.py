@@ -22,12 +22,13 @@ class OrderClientTests(unittest.TestCase):
     def test_classify_token_id_missing_reject(self) -> None:
         self.assertEqual(_classify_error_code("token_id_missing"), "token_id_missing")
 
-    def test_marketable_limit_prefers_fok(self) -> None:
+    def test_marketable_limit_prefers_ioc(self) -> None:
         class _OrderType:
+            IOC = "ioc"
             FOK = "fok"
             GTC = "gtc"
 
-        self.assertEqual(_resolve_marketable_limit_order_type(_OrderType), "fok")
+        self.assertEqual(_resolve_marketable_limit_order_type(_OrderType), "ioc")
 
     def test_marketable_limit_falls_back_to_ioc_then_gtc(self) -> None:
         class _IOCOnly:

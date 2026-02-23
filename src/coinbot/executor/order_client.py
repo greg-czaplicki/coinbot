@@ -166,8 +166,8 @@ class ClobOrderClient:
             payload["size"] = str(size)
             order_args = OrderArgs(
                 token_id=token_id,
-                price=float(price),
-                size=float(size),
+                price=float(str(price)),
+                size=float(str(size)),
                 side=intent.side.value.upper(),
             )
             response = self._post_with_refresh(client, order_args, OrderType)
@@ -180,31 +180,31 @@ class ClobOrderClient:
                 response=response if isinstance(response, dict) else {"response": str(response)},
             )
         except Exception as exc:
-            # Retry once with coarser precision for markets that enforce strict amount scales.
+            # Retry with coarser precision ladders for markets that enforce strict amount scales.
             msg = str(exc).lower()
             if "invalid amounts" in msg:
-                try:
-                    px2 = price.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-                    sz2 = size.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-                    payload["price"] = str(px2)
-                    payload["size"] = str(sz2)
-                    order_args2 = OrderArgs(
-                        token_id=token_id,
-                        price=float(px2),
-                        size=float(sz2),
-                        side=intent.side.value.upper(),
-                    )
-                    response = self._post_with_refresh(client, order_args2, OrderType)
-                    return OrderSubmission(
-                        client_order_id=client_order_id,
-                        endpoint=endpoint,
-                        payload=payload,
-                        accepted=True,
-                        status="acknowledged",
-                        response=response if isinstance(response, dict) else {"response": str(response)},
-                    )
-                except Exception as retry_exc:
-                    exc = retry_exc
+                retries = _invalid_amounts_retries(price=price, size=size)
+                for px2, sz2 in retries:
+                    try:
+                        payload["price"] = str(px2)
+                        payload["size"] = str(sz2)
+                        order_args2 = OrderArgs(
+                            token_id=token_id,
+                            price=float(str(px2)),
+                            size=float(str(sz2)),
+                            side=intent.side.value.upper(),
+                        )
+                        response = self._post_with_refresh(client, order_args2, OrderType)
+                        return OrderSubmission(
+                            client_order_id=client_order_id,
+                            endpoint=endpoint,
+                            payload=payload,
+                            accepted=True,
+                            status="acknowledged",
+                            response=response if isinstance(response, dict) else {"response": str(response)},
+                        )
+                    except Exception as retry_exc:
+                        exc = retry_exc
             error = str(exc)
             self._log.warning("py_clob_submit_error client_order_id=%s error=%s", client_order_id, exc)
             return OrderSubmission(
@@ -353,6 +353,34 @@ def _sanitize_buy_amounts(*, price: Decimal, size: Decimal) -> tuple[Decimal, De
     return px, sz
 
 
+def _invalid_amounts_retries(*, price: Decimal, size: Decimal) -> list[tuple[Decimal, Decimal]]:
+    candidates = [
+        (
+            price.quantize(Decimal("0.01"), rounding=ROUND_DOWN),
+            size.quantize(Decimal("0.0001"), rounding=ROUND_DOWN),
+        ),
+        (
+            price.quantize(Decimal("0.01"), rounding=ROUND_DOWN),
+            size.quantize(Decimal("0.01"), rounding=ROUND_DOWN),
+        ),
+        (
+            price.quantize(Decimal("0.001"), rounding=ROUND_DOWN),
+            size.quantize(Decimal("0.01"), rounding=ROUND_DOWN),
+        ),
+    ]
+    out: list[tuple[Decimal, Decimal]] = []
+    seen: set[str] = set()
+    for px, sz in candidates:
+        if px <= 0 or sz <= 0:
+            continue
+        key = f"{px}:{sz}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((px, sz))
+    return out
+
+
 def _classify_error_code(error: str) -> str:
     normalized = error.lower()
     if "token_id_missing" in normalized:
@@ -364,7 +392,7 @@ def _classify_error_code(error: str) -> str:
 
 def _resolve_marketable_limit_order_type(order_type_cls: object):
     # Marketable limit orders should prefer immediate execution semantics.
-    for name in ("FOK", "IOC", "GTC"):
+    for name in ("IOC", "FOK", "GTC"):
         value = getattr(order_type_cls, name, None)
         if value is not None:
             return value
