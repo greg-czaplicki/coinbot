@@ -81,6 +81,9 @@ class ReconnectingWsClient:
                 elif self._recv_count % 50 == 0:
                     self._log.info("ws_recv_progress count=%s", self._recv_count)
                 message = self._parse(raw)
+                if message is None:
+                    # Ignore keepalives/empty frames from some feeds.
+                    continue
                 await self._on_message(message)
 
     async def _subscribe(self, ws: WebSocketClientProtocol) -> None:
@@ -92,9 +95,15 @@ class ReconnectingWsClient:
             self._log.info("ws_subscribe payload=%s", payload)
 
     @staticmethod
-    def _parse(raw: str | bytes) -> dict[str, Any]:
+    def _parse(raw: str | bytes) -> dict[str, Any] | None:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
+        raw = raw.strip()
+        if not raw:
+            return None
+        # Some feeds use non-JSON heartbeat strings.
+        if raw.lower() in {"ping", "pong"}:
+            return None
         parsed = json.loads(raw)
         if isinstance(parsed, list):
             # Some feeds emit top-level arrays; normalize for handlers.
