@@ -28,6 +28,7 @@ class LoggingProfileTests(unittest.TestCase):
     def test_blocks_noisy_messages(self) -> None:
         self.assertFalse(self.filter.filter(self._record(msg="ws_recv_progress count=50")))
         self.assertFalse(self.filter.filter(self._record(msg="dry_run_blocked")))
+        self.assertFalse(self.filter.filter(self._record(msg="dry_run_intent")))
 
     def test_allows_warnings_and_errors(self) -> None:
         self.assertTrue(self.filter.filter(self._record(msg="anything", level=logging.WARNING)))

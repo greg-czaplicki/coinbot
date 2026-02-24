@@ -30,7 +30,6 @@ class ConciseFilter(logging.Filter):
         "redeemer_started",
         "redeemer_redeemed",
         "redeemer_redeemed_safe",
-        "dry_run_intent",
         "order_submitted",
         "order_rejected",
         "pnl_settlement_applied",
