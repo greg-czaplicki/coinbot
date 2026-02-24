@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import signal
@@ -39,7 +40,12 @@ class CoalesceBucket:
 
 
 def main() -> None:
-    setup_logging(logging.INFO)
+    args = _parse_args()
+    log_profile = os.getenv("LOG_PROFILE", "verbose").strip().lower()
+    if args.concise:
+        log_profile = "concise"
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    setup_logging(log_level, profile=log_profile)
     cfg = load_config()
     log = logging.getLogger("coinbot.main")
     metrics = MetricsCollector()
@@ -458,6 +464,21 @@ def main() -> None:
                 counts_toward_reject_rate=counts_toward_reject_rate,
             )
             if submission.accepted:
+                log.info(
+                    "order_submitted",
+                    extra={
+                        "extra_fields": {
+                            "correlation_id": correlation_id,
+                            "market_id": decision.intent.market_id,
+                            "outcome": decision.intent.outcome,
+                            "side": decision.intent.side.value,
+                            "price": str(px),
+                            "size": str(size),
+                            "target_notional_usd": str(decision.intent.target_notional_usd),
+                            "status": submission.status,
+                        }
+                    },
+                )
                 pnl_market_id = source_events[-1].market_slug or decision.intent.market_id
                 pnl.apply_fill(
                     market_id=pnl_market_id,
@@ -465,6 +486,21 @@ def main() -> None:
                     side=decision.intent.side.value,
                     qty=size,
                     price=px,
+                )
+            else:
+                log.info(
+                    "order_rejected",
+                    extra={
+                        "extra_fields": {
+                            "correlation_id": correlation_id,
+                            "market_id": decision.intent.market_id,
+                            "outcome": decision.intent.outcome,
+                            "side": decision.intent.side.value,
+                            "status": submission.status,
+                            "error_code": submission.error_code,
+                            "error": submission.error,
+                        }
+                    },
                 )
             dry_run.execute(intent=decision.intent, risk=risk, correlation_id=correlation_id)
             copy_audit.write(
@@ -682,6 +718,21 @@ def _emit_snapshot(
     }
     exporter.write_snapshot(payload)
     log.info("telemetry_snapshot", extra={"extra_fields": payload})
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="coinbot copy-trading runner")
+    parser.add_argument(
+        "--concise",
+        action="store_true",
+        help="Use concise log profile (suppresses websocket/debug noise).",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Set log level to DEBUG.",
+    )
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":

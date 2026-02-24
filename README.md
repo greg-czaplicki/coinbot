@@ -26,6 +26,8 @@ Polymarket copy-trading bot focused on low-latency intent-level replication.
 - `COPY_SOURCE_WS_ENABLED=true` enables websocket ingestion.
 - `COPY_SOURCE_WS_MODE=market` uses the existing CLOB market stream.
 - `COPY_SOURCE_WS_MODE=activity` uses the simpler activity-trades websocket stream (`COPY_SOURCE_ACTIVITY_WS_URL`), matching the terminal-style watcher pattern.
+- `LOG_PROFILE=concise` suppresses websocket/debug noise and keeps only core trade/PnL lifecycle logs.
+- CLI override: `PYTHONPATH=src python3 -m coinbot.main --concise` (or add `--debug`) to change log profile/level without editing `.env`.
 
 ## Optional Auto Redeem
 - `REDEEM_ENABLED=true` starts a periodic on-chain redeem worker.
