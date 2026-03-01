@@ -82,7 +82,7 @@ class WindowRiskTracker:
     def __init__(self, sizing: SizingConfig) -> None:
         self._sizing = sizing
         self._window_notional: dict[str, Decimal] = {}
-        self._market_notional: dict[str, Decimal] = {}
+        self._market_net_notional: dict[str, Decimal] = {}
         self._daily_notional: Decimal = Decimal("0")
 
     def check_and_apply(self, intent: ExecutionIntent) -> RiskSnapshot:
@@ -98,14 +98,16 @@ class WindowRiskTracker:
                 blocked=True,
                 blocked_reason="window_cap_exceeded",
             )
-        market_current = self._market_notional.get(intent.market_id, Decimal("0"))
-        market_projected = market_current + intent.target_notional_usd
+        sign = Decimal("1") if intent.side.value == "BUY" else Decimal("-1")
+        market_current_net = self._market_net_notional.get(intent.market_id, Decimal("0"))
+        market_projected_net = market_current_net + sign * intent.target_notional_usd
+        market_projected_exposure = abs(market_projected_net)
         market_cap = Decimal(str(self._sizing.max_notional_per_market_usd))
-        if market_projected > market_cap:
+        if market_projected_exposure > market_cap:
             return RiskSnapshot(
                 total_notional_today_usd=self._daily_notional,
                 total_notional_current_15m_window_usd=current,
-                market_exposure_usd={intent.market_id: market_current},
+                market_exposure_usd={intent.market_id: abs(market_current_net)},
                 blocked=True,
                 blocked_reason="market_cap_exceeded",
             )
@@ -115,15 +117,15 @@ class WindowRiskTracker:
             return RiskSnapshot(
                 total_notional_today_usd=self._daily_notional,
                 total_notional_current_15m_window_usd=current,
-                market_exposure_usd={intent.market_id: market_current},
+                market_exposure_usd={intent.market_id: abs(market_current_net)},
                 blocked=True,
                 blocked_reason="daily_cap_exceeded",
             )
         self._window_notional[window_id] = projected
-        self._market_notional[intent.market_id] = market_projected
+        self._market_net_notional[intent.market_id] = market_projected_net
         self._daily_notional = daily_projected
         return RiskSnapshot(
             total_notional_today_usd=self._daily_notional,
             total_notional_current_15m_window_usd=projected,
-            market_exposure_usd={intent.market_id: market_projected},
+            market_exposure_usd={intent.market_id: market_projected_exposure},
         )
