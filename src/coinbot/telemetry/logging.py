@@ -24,12 +24,15 @@ class JsonFormatter(logging.Formatter):
 class ConciseFilter(logging.Filter):
     _ALLOWED_MESSAGES = {
         "coinbot_boot",
+        "source_activity_enabled",
         "source_activity_disabled",
+        "source_anchor_set",
         "source_ws_enabled",
         "auto_redeemer_enabled",
         "redeemer_started",
         "redeemer_redeemed",
         "redeemer_redeemed_safe",
+        "dry_run_blocked",
         "order_submitted",
         "order_rejected",
         "pnl_settlement_applied",
@@ -47,7 +50,6 @@ class ConciseFilter(logging.Filter):
         "ws_message_sample",
         "ws_trade_no_wallet_match",
         "cross_source_duplicate_drop",
-        "dry_run_blocked",
     )
 
     def filter(self, record: logging.LogRecord) -> bool:

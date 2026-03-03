@@ -157,6 +157,7 @@ def main() -> None:
         )
         poller_thread = Thread(target=poller.run_forever, name="source-poller", daemon=True)
         poller_thread.start()
+        log.info("source_activity_enabled")
     else:
         log.info("source_activity_disabled")
     if cfg.copy.source_ws_enabled:

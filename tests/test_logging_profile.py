@@ -24,10 +24,12 @@ class LoggingProfileTests(unittest.TestCase):
     def test_allows_core_messages(self) -> None:
         self.assertTrue(self.filter.filter(self._record(msg="order_submitted")))
         self.assertTrue(self.filter.filter(self._record(msg="telemetry_snapshot")))
+        self.assertTrue(self.filter.filter(self._record(msg="source_activity_enabled")))
+        self.assertTrue(self.filter.filter(self._record(msg="source_anchor_set")))
+        self.assertTrue(self.filter.filter(self._record(msg="dry_run_blocked")))
 
     def test_blocks_noisy_messages(self) -> None:
         self.assertFalse(self.filter.filter(self._record(msg="ws_recv_progress count=50")))
-        self.assertFalse(self.filter.filter(self._record(msg="dry_run_blocked")))
         self.assertFalse(self.filter.filter(self._record(msg="dry_run_intent")))
 
     def test_allows_warnings_and_errors(self) -> None:
