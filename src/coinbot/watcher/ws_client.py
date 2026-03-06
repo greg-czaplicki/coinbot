@@ -62,29 +62,43 @@ class ReconnectingWsClient:
             ping_timeout=self._ping_timeout_s,
             max_queue=1000,
         ) as ws:
-            await self._subscribe(ws)
-            self._log.info("ws_connected url=%s", self._url)
-            started = time.monotonic()
-            while not self._stop_event.is_set():
-                if self._session_ttl_s is not None and (time.monotonic() - started) >= self._session_ttl_s:
-                    self._log.info("ws_session_rollover url=%s ttl_s=%s", self._url, self._session_ttl_s)
-                    return
+            await self._connect_once_with_socket(ws, started=time.monotonic())
+
+    async def _connect_once_with_socket(self, ws: WebSocketClientProtocol, *, started: float) -> None:
+        await self._subscribe(ws)
+        self._log.info("ws_connected url=%s", self._url)
+        while not self._stop_event.is_set():
+            ttl_remaining_s = self._ttl_remaining(started)
+            if ttl_remaining_s is not None and ttl_remaining_s <= 0:
+                self._log.info("ws_session_rollover url=%s ttl_s=%s", self._url, self._session_ttl_s)
+                return
+            if ttl_remaining_s is None:
                 raw = await ws.recv()
-                self._recv_count += 1
-                if self._recv_count <= 5:
-                    self._log.info(
-                        "ws_recv_sample idx=%s raw_type=%s raw_len=%s",
-                        self._recv_count,
-                        type(raw).__name__,
-                        len(raw) if hasattr(raw, "__len__") else "n/a",
-                    )
-                elif self._recv_count % 50 == 0:
-                    self._log.info("ws_recv_progress count=%s", self._recv_count)
-                message = self._parse(raw)
-                if message is None:
-                    # Ignore keepalives/empty frames from some feeds.
+            else:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=min(ttl_remaining_s, 1.0))
+                except asyncio.TimeoutError:
                     continue
-                await self._on_message(message)
+            self._recv_count += 1
+            if self._recv_count <= 5:
+                self._log.info(
+                    "ws_recv_sample idx=%s raw_type=%s raw_len=%s",
+                    self._recv_count,
+                    type(raw).__name__,
+                    len(raw) if hasattr(raw, "__len__") else "n/a",
+                )
+            elif self._recv_count % 50 == 0:
+                self._log.info("ws_recv_progress count=%s", self._recv_count)
+            message = self._parse(raw)
+            if message is None:
+                # Ignore keepalives/empty frames from some feeds.
+                continue
+            await self._on_message(message)
+
+    def _ttl_remaining(self, started: float) -> float | None:
+        if self._session_ttl_s is None:
+            return None
+        return self._session_ttl_s - (time.monotonic() - started)
 
     async def _subscribe(self, ws: WebSocketClientProtocol) -> None:
         payloads = self._subscribe_messages

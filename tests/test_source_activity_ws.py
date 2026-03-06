@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
 
 from coinbot.executor.redeemer import _group_by_condition, _token_id_from_row
 from coinbot.watcher.source_activity_ws import (
@@ -28,13 +29,13 @@ class SourceActivityWsTests(unittest.TestCase):
         row = {
             "id": "evt-1",
             "conditionId": "0xcondition",
-            "slug": "btc-updown-5m-123",
+            "slug": "btc-updown-5m-1771812000",
             "outcome": "Up",
             "side": "BUY",
             "price": "0.44",
             "size": "10",
             "usdcSize": "4.4",
-            "timestamp": "2026-02-23T00:00:00Z",
+            "timestamp": "2026-02-23T01:00:00Z",
             "proxyWallet": "0xabc",
         }
         event = _normalize_trade(row, "0xabc")
@@ -43,6 +44,32 @@ class SourceActivityWsTests(unittest.TestCase):
         self.assertEqual("evt-1", event.event_id)
         self.assertEqual("0xcondition", event.market_id)
         self.assertEqual("activity_ws", event.source_path)
+        self.assertIsNotNone(event.window)
+        assert event.window is not None
+        self.assertEqual("btc:20260223T0100", event.window.window_id)
+        self.assertEqual(datetime(2026, 2, 23, 1, 5, tzinfo=timezone.utc), event.window.end_ts)
+
+    def test_normalize_trade_infers_window_from_market_title(self) -> None:
+        row = {
+            "id": "evt-2",
+            "conditionId": "0xcondition",
+            "slug": "btc-updown-5m-1771812000",
+            "marketTitle": "Bitcoin Up or Down - February 22, 8:00PM-8:05PM ET",
+            "outcome": "Up",
+            "side": "BUY",
+            "price": "0.44",
+            "size": "10",
+            "usdcSize": "4.4",
+            "timestamp": "2026-02-23T01:00:00Z",
+            "proxyWallet": "0xabc",
+        }
+        event = _normalize_trade(row, "0xabc")
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertIsNotNone(event.window)
+        assert event.window is not None
+        self.assertEqual("bitcoin:20260222T2000", event.window.window_id)
+        self.assertEqual(datetime(2026, 2, 23, 1, 5, tzinfo=timezone.utc), event.window.end_ts)
 
     def test_group_by_condition_and_token_id(self) -> None:
         rows = [

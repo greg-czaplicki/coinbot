@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from coinbot.schemas import Side, TradeEvent
+from coinbot.watcher.market_window import infer_market_window
 
 
 class SourceWalletActivityWsWatcher:
@@ -120,11 +121,13 @@ def _normalize_trade(raw: dict[str, Any], source_wallet: str) -> TradeEvent | No
 
     executed_ts = _parse_ts(raw.get("timestamp"))
     now_utc = datetime.now(timezone.utc)
+    market_slug = str(raw.get("slug") or "")
+    market_title = str(raw.get("marketTitle") or raw.get("title") or "")
     return TradeEvent(
         event_id=event_id,
         source_wallet=source_wallet,
         market_id=market_id,
-        market_slug=str(raw.get("slug") or ""),
+        market_slug=market_slug,
         outcome=str(raw.get("outcome") or ""),
         side=side,
         price=price,
@@ -136,6 +139,7 @@ def _normalize_trade(raw: dict[str, Any], source_wallet: str) -> TradeEvent | No
         source_exec_to_fetch_ms=max(0.0, (now_utc - executed_ts).total_seconds() * 1000),
         source_fetch_to_emit_ms=0.0,
         source_poll_cycle_ms=0.0,
+        window=infer_market_window(title=market_title, slug=market_slug, now=executed_ts),
     )
 
 

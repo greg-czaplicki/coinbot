@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime, timezone
 
 from coinbot.watcher.source_ws import (
     _extract_market_token_ids,
@@ -78,6 +79,32 @@ class SourceWsParserTests(unittest.TestCase):
         self.assertEqual("m2", event.market_id)
         self.assertEqual("btc-up-down", event.market_slug)
         self.assertEqual("Down", event.outcome)
+
+    def test_normalize_trade_infers_window_from_slug(self) -> None:
+        row = {
+            "event_message": json.dumps(
+                {
+                    "trade": {
+                        "trade_id": "t3",
+                        "market_id": "m3",
+                        "price": "0.52",
+                        "size": "8",
+                        "usdcSize": "4.16",
+                        "side": "BUY",
+                        "outcome": "Up",
+                        "timestamp": "2026-02-23T01:00:01Z",
+                        "slug": "btc-updown-5m-1771812000",
+                    }
+                }
+            )
+        }
+        event = _normalize_trade(row, "0xabc")
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertIsNotNone(event.window)
+        assert event.window is not None
+        self.assertEqual("btc:20260223T0100", event.window.window_id)
+        self.assertEqual(datetime(2026, 2, 23, 1, 5, tzinfo=timezone.utc), event.window.end_ts)
 
     def test_extract_updown_families(self) -> None:
         slugs = [

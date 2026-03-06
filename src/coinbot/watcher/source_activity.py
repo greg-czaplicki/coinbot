@@ -2,28 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from datetime import timedelta
 from decimal import Decimal
 from typing import Any
-from zoneinfo import ZoneInfo
 
-from coinbot.schemas import MarketWindow, Side, TradeEvent
+from coinbot.schemas import Side, TradeEvent
 from coinbot.state_store.checkpoints import SqliteCheckpointStore
 from coinbot.state_store.dedupe import EventKey, SqliteDedupeStore
-
-
-MARKET_WINDOW_RE = re.compile(
-    r"^(?P<asset>[A-Za-z0-9 ]+?) Up or Down - "
-    r"(?P<month>[A-Za-z]+) (?P<day>\d{1,2}), "
-    r"(?P<start>\d{1,2}:\d{2}[AP]M)-(?P<end>\d{1,2}:\d{2}[AP]M) ET$"
-)
+from coinbot.watcher.market_window import parse_market_window
 
 
 @dataclass(frozen=True)
@@ -242,32 +233,3 @@ def _activity_items(payload: Any) -> list[dict[str, Any]] | None:
         if isinstance(items, list):
             return items
     return None
-
-
-def parse_market_window(title: str, *, now: datetime) -> MarketWindow | None:
-    match = MARKET_WINDOW_RE.match(title.strip())
-    if not match:
-        return None
-    asset = match.group("asset").strip()
-    month = match.group("month")
-    day = int(match.group("day"))
-    start_local = _parse_et_time(month, day, match.group("start"), now)
-    end_local = _parse_et_time(month, day, match.group("end"), now)
-    if end_local <= start_local:
-        end_local = end_local + timedelta(days=1)
-    duration = int((end_local - start_local).total_seconds())
-    window_id = f"{asset.lower()}:{start_local.strftime('%Y%m%dT%H%M')}"
-    return MarketWindow(
-        asset=asset,
-        start_ts=start_local.astimezone(timezone.utc),
-        end_ts=end_local.astimezone(timezone.utc),
-        duration_seconds=duration,
-        window_id=window_id,
-    )
-
-
-def _parse_et_time(month: str, day: int, time_str: str, now: datetime) -> datetime:
-    et = ZoneInfo("America/New_York")
-    year = now.astimezone(et).year
-    dt = datetime.strptime(f"{month} {day} {year} {time_str}", "%B %d %Y %I:%M%p")
-    return dt.replace(tzinfo=et)
